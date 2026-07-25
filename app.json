@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "Text Saver",
+    "slug": "text-saver",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": false,
+    "splash": {
+      "backgroundColor": "#0f0f23"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.faran.textsaver",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "GADApplicationIdentifier": "ca-app-pub-4386055252112057~7597253176",
+        "NSUserTrackingUsageDescription": "This app uses identifiers to deliver personalized ads."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0f0f23"
+      },
+      "package": "com.faran.textsaver"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "scheme": "textsaver",
+    "plugins": [
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-4386055252112057~2456607131",
+          "iosAppId": "ca-app-pub-4386055252112057~7597253176"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+      }
+    },
+    "owner": "shumaila_saher"
+  }
+}
