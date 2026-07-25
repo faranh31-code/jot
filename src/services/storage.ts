@@ -46,7 +46,8 @@ async function getStorage(): Promise<StorageAdapter> {
         await AsyncStorage.removeItem(`${STORAGE_PREFIX}_${key}`);
       },
       async multiGet(keys) {
-        return AsyncStorage.multiGet(keys.map((k) => `${STORAGE_PREFIX}_${k}`));
+        const result = await AsyncStorage.multiGet(keys.map((k) => `${STORAGE_PREFIX}_${k}`));
+        return result as [string, string | null][];
       },
       async clear() {
         await AsyncStorage.clear();
@@ -54,7 +55,7 @@ async function getStorage(): Promise<StorageAdapter> {
     };
   }
 
-  return storageAdapter;
+  return storageAdapter!;
 }
 
 export async function storageGet(key: string): Promise<string | null> {

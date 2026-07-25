@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  RefreshControl,
 } from "react-native";
 import { Colors, BorderRadius, Spacing, FontSize } from "../constants/theme";
 import EntryCard from "../components/EntryCard";
@@ -20,12 +21,15 @@ import { useShare } from "../hooks/useShare";
 interface HomeScreenProps {
   isDark: boolean;
   isUserLoggedIn: boolean;
+  isPro: boolean;
   onRequireAuth: () => void;
+  onCopyFromPreview?: () => void;
 }
 
-export default function HomeScreen({ isDark, isUserLoggedIn, onRequireAuth }: HomeScreenProps) {
-  const { entries, isLoading, createEntry, editEntry, removeEntry } = useEntries(isUserLoggedIn);
+export default function HomeScreen({ isDark, isUserLoggedIn, isPro, onRequireAuth, onCopyFromPreview }: HomeScreenProps) {
+  const { entries, isLoading, createEntry, editEntry, removeEntry, refreshEntries } = useEntries(isUserLoggedIn);
   const { copyToClipboard } = useShare();
+  const [refreshing, setRefreshing] = useState(false);
 
   const [selectedEntry, setSelectedEntry] = useState<{
     id: string;
@@ -42,6 +46,12 @@ export default function HomeScreen({ isDark, isUserLoggedIn, onRequireAuth }: Ho
   const [copied, setCopied] = useState(false);
   const [savedToast, setSavedToast] = useState(false);
   const [deleteToast, setDeleteToast] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refreshEntries();
+    setRefreshing(false);
+  }, [refreshEntries]);
 
   const confirmDelete = useCallback(
     (id: string) => {
@@ -107,9 +117,10 @@ export default function HomeScreen({ isDark, isUserLoggedIn, onRequireAuth }: Ho
       if (success) {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
+        if (onCopyFromPreview) onCopyFromPreview();
       }
     },
-    [copyToClipboard]
+    [copyToClipboard, onCopyFromPreview]
   );
 
   const handleSave = useCallback(
@@ -191,6 +202,14 @@ export default function HomeScreen({ isDark, isUserLoggedIn, onRequireAuth }: Ho
           )}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={Colors.accent}
+              colors={[Colors.accent]}
+            />
+          }
         />
       )}
 

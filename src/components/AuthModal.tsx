@@ -22,7 +22,7 @@ import {
   resetPassword,
 } from "../services/firebase";
 
-try { WebBrowser.maybeCompleteAuthBrowser(); } catch {}
+try { WebBrowser.maybeCompleteAuthSession(); } catch {}
 
 interface AuthModalProps {
   isVisible: boolean;

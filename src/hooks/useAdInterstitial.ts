@@ -19,10 +19,10 @@ export function useAdInterstitial(isPro: boolean) {
         const ad = ads.InterstitialAd.createForAdRequest(unitId);
         interstitialRef.current = ad;
 
-        const loaded = ad.addAdEventListener(ads.InterstitialAdEventType.LOADED, () => {
+        const loaded = ad.addAdEventListener(ads.AdEventType.LOADED, () => {
           setIsAdLoaded(true);
         });
-        const closed = ad.addAdEventListener(ads.InterstitialAdEventType.CLOSED, () => {
+        const closed = ad.addAdEventListener(ads.AdEventType.CLOSED, () => {
           setIsAdLoaded(false);
           ad.load();
         });

@@ -8,8 +8,16 @@ import AppGuideModal from "./src/components/AppGuideModal";
 import AdBanner from "./src/components/AdBanner";
 import { useSubscription } from "./src/hooks/useSubscription";
 import { useReviewPrompt } from "./src/hooks/useReviewPrompt";
+import { useAdRewarded } from "./src/hooks/useAdRewarded";
 import { initFirebase, onAuthStateChanged, signOut, UserProfile } from "./src/services/firebase";
 import { Colors } from "./src/constants/theme";
+
+function getGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
 
 export default function App() {
   const [paywallVisible, setPaywallVisible] = useState(false);
@@ -20,7 +28,8 @@ export default function App() {
   const [isDark, setIsDark] = useState(true);
 
   const { isPro } = useSubscription();
-  const { isModalVisible: isReviewVisible, handleUserReviewed, handleUserDismissed } = useReviewPrompt();
+  const { isModalVisible: isReviewVisible, triggerHappyMoodReview, handleUserReviewed, handleUserDismissed } = useReviewPrompt();
+  const { showRewardAd } = useAdRewarded(isPro);
 
   useEffect(() => {
     (async () => {
@@ -76,10 +85,18 @@ export default function App() {
     setIsDark((prev) => !prev);
   }, []);
 
+  const handleSaveSuccess = useCallback(() => {
+    triggerHappyMoodReview();
+  }, [triggerHappyMoodReview]);
+
+  const handleCopyFromPreview = useCallback(() => {
+    showRewardAd();
+  }, [showRewardAd]);
+
   const userGreeting = currentUser?.displayName
-    ? `Hello, ${currentUser.displayName}`
+    ? `${getGreeting()}, ${currentUser.displayName}`
     : currentUser?.email
-    ? `Hello, ${currentUser.email.split("@")[0]}`
+    ? `${getGreeting()}, ${currentUser.email.split("@")[0]}`
     : "Jot";
 
   return (
@@ -95,9 +112,7 @@ export default function App() {
               {currentUser ? userGreeting : "Jot"}
             </Text>
             <Text style={[styles.headerSubtitle, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]}>
-              {currentUser
-                ? `${currentUser.email || ""}`
-                : "Sign in to sync your entries"}
+              {currentUser ? "Jot" : "Sign in to sync your entries"}
             </Text>
           </View>
           <View style={styles.headerRight}>
@@ -115,7 +130,9 @@ export default function App() {
         <HomeScreen
           isDark={isDark}
           isUserLoggedIn={!!currentUser}
+          isPro={isPro}
           onRequireAuth={handleRequireAuth}
+          onCopyFromPreview={handleCopyFromPreview}
         />
 
         <View style={[styles.tabBar, { backgroundColor: uiBg, borderTopColor: uiBorder }]}>

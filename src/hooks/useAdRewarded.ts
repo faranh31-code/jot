@@ -22,7 +22,7 @@ export function useAdRewarded(isPro: boolean) {
         const loaded = ad.addAdEventListener(ads.RewardedAdEventType.LOADED, () => {
           setIsAdLoaded(true);
         });
-        const closed = ad.addAdEventListener(ads.RewardedAdEventType.CLOSED, () => {
+        const closed = ad.addAdEventListener(ads.AdEventType.CLOSED, () => {
           setIsAdLoaded(false);
           ad.load();
         });

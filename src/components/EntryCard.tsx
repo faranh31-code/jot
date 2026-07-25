@@ -47,7 +47,7 @@ export default function EntryCard({ headline, content, createdAt, isDark, onPres
           onPress={(e) => { e.stopPropagation(); onDelete(); }}
           hitSlop={8}
         >
-          <Text style={styles.deleteBtnText}>{"\u2715"}</Text>
+          <Text style={styles.deleteBtnText}>{"\uD83D\uDDD1\uFE0F"}</Text>
         </Pressable>
       </View>
     </Pressable>

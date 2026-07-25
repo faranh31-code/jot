@@ -10,7 +10,6 @@ import {
   Alert,
   Platform,
   Keyboard,
-  KeyboardAvoidingView,
 } from "react-native";
 import { Colors, BorderRadius, Spacing, FontSize } from "../constants/theme";
 
@@ -85,12 +84,6 @@ export default function EntryDetailModal({
     setIsEditing(false);
   }, [entryId, editHeadline, editContent, onEdit]);
 
-  const handleContentTap = useCallback(() => {
-    if (!isEditing) {
-      setIsEditing(true);
-    }
-  }, [isEditing]);
-
   const bg = isDark ? Colors.dark.bg : Colors.light.card;
   const text = isDark ? Colors.dark.text : Colors.light.text;
   const muted = isDark ? Colors.dark.textSecondary : Colors.light.textSecondary;
@@ -99,36 +92,29 @@ export default function EntryDetailModal({
   const placeholderColor = isDark ? Colors.dark.textMuted : Colors.light.textMuted;
 
   return (
-    <Modal visible={isVisible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        style={styles.overlay}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <Pressable style={styles.backdrop} onPress={onClose} />
-        <View style={[styles.container, { backgroundColor: bg, borderTopColor: border }]}>
-          <View style={styles.handle} />
-
+    <Modal visible={isVisible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.overlay} onPress={onClose}>
+        <View style={[styles.container, { backgroundColor: bg, borderColor: border }]} onStartShouldSetResponder={() => true}>
           <View style={styles.topBar}>
-            <Pressable
-              style={[styles.modeToggle, { backgroundColor: isEditing ? "rgba(108,99,255,0.2)" : isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)", borderColor: border }]}
-              onPress={() => setIsEditing((prev) => !prev)}
-            >
-              <Text style={[styles.modeToggleText, { color: isEditing ? Colors.accent : muted }]}>
-                {isEditing ? "Preview" : "Edit"}
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[styles.copyIconBtn, { backgroundColor: copySuccess ? "rgba(46,204,113,0.2)" : isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" }]}
-              onPress={handleCopy}
-              hitSlop={8}
-            >
-              <Text style={[styles.copyIconText, { color: copySuccess ? "#2ecc71" : muted }]}>
-                {copySuccess ? "\u2714" : "\u2398"}
-              </Text>
-            </Pressable>
-            <Pressable style={[styles.closeIconBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" }]} onPress={onClose} hitSlop={8}>
-              <Text style={[styles.closeIconText, { color: muted }]}>✕</Text>
-            </Pressable>
+            <Text style={[styles.modalTitle, { color: text }]} numberOfLines={1}>{headline}</Text>
+            <View style={styles.topActions}>
+              <Pressable
+                style={[styles.iconBtn, { backgroundColor: copySuccess ? "rgba(46,204,113,0.2)" : isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" }]}
+                onPress={handleCopy}
+                hitSlop={8}
+              >
+                <Text style={[styles.iconBtnText, { color: copySuccess ? "#2ecc71" : muted }]}>
+                  {copySuccess ? "\u2714" : "\uD83D\uDCCB"}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.iconBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" }]}
+                onPress={onClose}
+                hitSlop={8}
+              >
+                <Text style={[styles.iconBtnText, { color: muted }]}>✕</Text>
+              </Pressable>
+            </View>
           </View>
 
           <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -156,56 +142,50 @@ export default function EntryDetailModal({
                 />
               </View>
             ) : (
-              <Pressable onPress={handleContentTap}>
-                <Text style={[styles.headline, { color: text }]}>{headline}</Text>
-                <Text style={[styles.contentText, { color: muted }]}>{content}</Text>
-                <Text style={[styles.tapHint, { color: isDark ? Colors.dark.textMuted : Colors.light.textMuted }]}>
-                  Tap to edit
-                </Text>
-              </Pressable>
+              <Text style={[styles.contentText, { color: muted }]}>{content}</Text>
             )}
           </ScrollView>
 
-          {isEditing && (
-            <View style={[styles.editActions, { borderTopColor: border, backgroundColor: bg }]}>
-              <Pressable
-                style={[styles.cancelEditBtn, { borderColor: border }]}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setEditHeadline(headline);
-                  setEditContent(content);
-                  setIsEditing(false);
-                }}
-              >
-                <Text style={[styles.cancelEditText, { color: text }]}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.saveEditBtn, { backgroundColor: Colors.accent }]}
-                onPress={handleSaveEdit}
-              >
-                <Text style={styles.saveEditText}>Save</Text>
-              </Pressable>
-            </View>
-          )}
-
-          {!isEditing && (
-            <View style={styles.actions}>
-              <Pressable
-                style={[styles.actionBtn, { backgroundColor: "rgba(255, 59, 48, 0.15)" }]}
-                onPress={handleDelete}
-              >
-                <Text style={[styles.actionBtnText, { color: "#FF3B30" }]}>Delete</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.actionBtn, { backgroundColor: Colors.accent }]}
-                onPress={() => setIsEditing(true)}
-              >
-                <Text style={styles.actionBtnText}>Edit</Text>
-              </Pressable>
-            </View>
-          )}
+          <View style={[styles.actions, { borderTopColor: border, backgroundColor: bg }]}>
+            {isEditing ? (
+              <>
+                <Pressable
+                  style={[styles.actionBtn, { borderColor: border, borderWidth: 1 }]}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setEditHeadline(headline);
+                    setEditContent(content);
+                    setIsEditing(false);
+                  }}
+                >
+                  <Text style={[styles.actionBtnText, { color: text }]}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.actionBtn, { backgroundColor: Colors.accent }]}
+                  onPress={handleSaveEdit}
+                >
+                  <Text style={[styles.actionBtnText, { color: "#fff" }]}>Save</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Pressable
+                  style={[styles.actionBtn, { backgroundColor: "rgba(255,59,48,0.15)" }]}
+                  onPress={handleDelete}
+                >
+                  <Text style={[styles.actionBtnText, { color: "#FF3B30" }]}>Delete</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.actionBtn, { backgroundColor: Colors.accent }]}
+                  onPress={() => setIsEditing(true)}
+                >
+                  <Text style={[styles.actionBtnText, { color: "#fff" }]}>Edit</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
         </View>
-      </KeyboardAvoidingView>
+      </Pressable>
     </Modal>
   );
 }
@@ -213,84 +193,58 @@ export default function EntryDetailModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    justifyContent: "flex-end",
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
   },
   container: {
-    borderTopLeftRadius: BorderRadius.xl,
-    borderTopRightRadius: BorderRadius.xl,
-    maxHeight: "85%",
-    borderTopWidth: 1,
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#444",
-    alignSelf: "center",
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.sm,
+    width: "100%",
+    maxWidth: 420,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    maxHeight: "80%",
+    overflow: "hidden",
   },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.sm,
-    gap: Spacing.sm,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(128,128,128,0.2)",
   },
-  modeToggle: {
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-  },
-  modeToggleText: {
-    fontSize: FontSize.sm,
-    fontWeight: "600",
-  },
-  copyIconBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  copyIconText: {
-    fontSize: 16,
+  modalTitle: {
+    fontSize: FontSize.lg,
     fontWeight: "700",
+    flex: 1,
+    marginRight: Spacing.sm,
   },
-  closeIconBtn: {
+  topActions: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  iconBtn: {
     width: 34,
     height: 34,
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
   },
-  closeIconText: {
-    fontSize: 14,
-    fontWeight: "600",
+  iconBtnText: {
+    fontSize: 15,
+    fontWeight: "700",
   },
   scrollContent: {
     paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
     maxHeight: "55%",
-  },
-  headline: {
-    fontSize: FontSize.xxl,
-    fontWeight: "800",
-    marginBottom: Spacing.md,
   },
   contentText: {
     fontSize: FontSize.md,
     lineHeight: 24,
-    marginBottom: Spacing.sm,
-  },
-  tapHint: {
-    fontSize: FontSize.xs,
-    fontStyle: "italic",
-    marginTop: Spacing.sm,
     marginBottom: Spacing.md,
   },
   editInput: {
@@ -298,7 +252,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
-    fontSize: FontSize.xxl,
+    fontSize: FontSize.lg,
     fontWeight: "700",
     marginBottom: Spacing.md,
   },
@@ -309,46 +263,16 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     fontSize: FontSize.md,
     lineHeight: 24,
-    minHeight: 180,
+    minHeight: 160,
     textAlignVertical: "top",
     paddingTop: Spacing.sm,
     marginBottom: Spacing.md,
   },
-  editActions: {
-    flexDirection: "row",
-    gap: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    borderTopWidth: 1,
-  },
-  cancelEditBtn: {
-    flex: 1,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
-    alignItems: "center",
-    borderWidth: 1,
-    backgroundColor: "transparent",
-  },
-  cancelEditText: {
-    fontSize: FontSize.md,
-    fontWeight: "600",
-  },
-  saveEditBtn: {
-    flex: 1,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
-    alignItems: "center",
-  },
-  saveEditText: {
-    color: "#fff",
-    fontSize: FontSize.md,
-    fontWeight: "700",
-  },
   actions: {
     flexDirection: "row",
     paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.xl,
-    paddingTop: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderTopWidth: 1,
     gap: Spacing.sm,
   },
   actionBtn: {
@@ -358,7 +282,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   actionBtnText: {
-    color: "#fff",
     fontSize: FontSize.md,
     fontWeight: "700",
   },

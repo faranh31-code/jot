@@ -1,9 +1,7 @@
 import { Platform } from "react-native";
 import { initializeApp, getApps, getApp } from "firebase/app";
 import {
-  initializeAuth,
   getAuth,
-  getReactNativePersistence,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithCredential,
@@ -12,7 +10,6 @@ import {
   signOut as firebaseSignOut,
   onAuthStateChanged as firebaseOnAuthStateChanged,
 } from "firebase/auth";
-import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 import {
   getFirestore,
   collection,
@@ -67,13 +64,7 @@ export async function initFirebase(): Promise<boolean> {
       firebaseApp = getApp();
     }
 
-    try {
-      auth = initializeAuth(firebaseApp, {
-        persistence: getReactNativePersistence(ReactNativeAsyncStorage),
-      });
-    } catch {
-      auth = getAuth(firebaseApp);
-    }
+    auth = getAuth(firebaseApp);
     db = getFirestore(firebaseApp);
     firebaseInitialized = true;
     console.log("[Firebase] Initialized successfully (JS SDK)");
