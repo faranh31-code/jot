@@ -17,10 +17,11 @@ import { useShare } from "../hooks/useShare";
 
 interface HomeScreenProps {
   isDark: boolean;
-  onOpenPaywall: () => void;
+  isUserLoggedIn: boolean;
+  onRequireAuth: () => void;
 }
 
-export default function HomeScreen({ isDark, onOpenPaywall }: HomeScreenProps) {
+export default function HomeScreen({ isDark, isUserLoggedIn, onRequireAuth }: HomeScreenProps) {
   const { entries, isLoading, createEntry, editEntry, removeEntry } = useEntries();
   const { copyToClipboard } = useShare();
 
@@ -48,18 +49,26 @@ export default function HomeScreen({ isDark, onOpenPaywall }: HomeScreenProps) {
 
   const handleEdit = useCallback(
     (id: string, headline: string, content: string) => {
+      if (!isUserLoggedIn) {
+        onRequireAuth();
+        return;
+      }
       setDetailVisible(false);
       setEditData({ id, headline, content });
       setTimeout(() => setCreateVisible(true), 300);
     },
-    []
+    [isUserLoggedIn, onRequireAuth]
   );
 
   const handleDelete = useCallback(
     async (id: string) => {
+      if (!isUserLoggedIn) {
+        onRequireAuth();
+        return;
+      }
       await removeEntry(id);
     },
-    [removeEntry]
+    [removeEntry, isUserLoggedIn, onRequireAuth]
   );
 
   const handleCopy = useCallback(
@@ -75,23 +84,35 @@ export default function HomeScreen({ isDark, onOpenPaywall }: HomeScreenProps) {
 
   const handleSave = useCallback(
     async (headline: string, content: string) => {
+      if (!isUserLoggedIn) {
+        onRequireAuth();
+        return;
+      }
       await createEntry(headline, content);
     },
-    [createEntry]
+    [createEntry, isUserLoggedIn, onRequireAuth]
   );
 
   const handleEditSave = useCallback(
     async (id: string, headline: string, content: string) => {
+      if (!isUserLoggedIn) {
+        onRequireAuth();
+        return;
+      }
       await editEntry(id, headline, content);
       setEditData(null);
     },
-    [editEntry]
+    [editEntry, isUserLoggedIn, onRequireAuth]
   );
 
   const handleCreatePress = useCallback(() => {
+    if (!isUserLoggedIn) {
+      onRequireAuth();
+      return;
+    }
     setEditData(null);
     setCreateVisible(true);
-  }, []);
+  }, [isUserLoggedIn, onRequireAuth]);
 
   if (isLoading) {
     return (
@@ -120,12 +141,24 @@ export default function HomeScreen({ isDark, onOpenPaywall }: HomeScreenProps) {
             { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary },
           ]}
         >
-          {entries.length} {entries.length === 1 ? "entry" : "entries"}
+          {isUserLoggedIn
+            ? `${entries.length} ${entries.length === 1 ? "entry" : "entries"}`
+            : "Sign in to save your entries"}
         </Text>
       </View>
 
-      {entries.length === 0 ? (
+      {entries.length === 0 && isUserLoggedIn ? (
         <EmptyState isDark={isDark} />
+      ) : entries.length === 0 && !isUserLoggedIn ? (
+        <View style={styles.welcomeContainer}>
+          <Text style={styles.welcomeIcon}>{"\uD83D\uDCDD"}</Text>
+          <Text style={[styles.welcomeTitle, { color: isDark ? Colors.dark.text : Colors.light.text }]}>
+            Save anything, anytime
+          </Text>
+          <Text style={[styles.welcomeSubtitle, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]}>
+            Create your first entry by tapping the + button below
+          </Text>
+        </View>
       ) : (
         <FlatList
           data={entries}
@@ -206,6 +239,27 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: Spacing.lg,
     paddingBottom: 100,
+  },
+  welcomeContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: Spacing.xl,
+  },
+  welcomeIcon: {
+    fontSize: 64,
+    marginBottom: Spacing.lg,
+  },
+  welcomeTitle: {
+    fontSize: FontSize.xxl,
+    fontWeight: "700",
+    marginBottom: Spacing.sm,
+    textAlign: "center",
+  },
+  welcomeSubtitle: {
+    fontSize: FontSize.md,
+    textAlign: "center",
+    lineHeight: 22,
   },
   fab: {
     position: "absolute",

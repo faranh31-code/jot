@@ -4,7 +4,6 @@ import { TextEntry, getEntries, addEntry, updateEntry, deleteEntry } from "../se
 interface UseEntriesReturn {
   entries: TextEntry[];
   isLoading: boolean;
-  isFirebaseConnected: boolean;
   createEntry: (headline: string, content: string) => Promise<TextEntry | null>;
   editEntry: (id: string, headline: string, content: string) => Promise<boolean>;
   removeEntry: (id: string) => Promise<boolean>;
@@ -14,7 +13,6 @@ interface UseEntriesReturn {
 export function useEntries(): UseEntriesReturn {
   const [entries, setEntries] = useState<TextEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isFirebaseConnected, setIsFirebaseConnected] = useState(false);
 
   useEffect(() => {
     loadEntries();
@@ -25,9 +23,8 @@ export function useEntries(): UseEntriesReturn {
     try {
       const data = await getEntries();
       setEntries(data);
-      setIsFirebaseConnected(true);
     } catch {
-      setIsFirebaseConnected(false);
+      setEntries([]);
     } finally {
       setIsLoading(false);
     }
@@ -77,7 +74,6 @@ export function useEntries(): UseEntriesReturn {
   return {
     entries,
     isLoading,
-    isFirebaseConnected,
     createEntry,
     editEntry,
     removeEntry,

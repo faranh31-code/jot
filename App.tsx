@@ -3,28 +3,52 @@ import { View, Text, Pressable, StyleSheet, StatusBar, Modal } from "react-nativ
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import HomeScreen from "./src/screens/HomeScreen";
 import PaywallModal from "./src/components/PaywallModal";
+import AuthModal from "./src/components/AuthModal";
+import AppGuideModal from "./src/components/AppGuideModal";
 import AdBanner from "./src/components/AdBanner";
 import { useSubscription } from "./src/hooks/useSubscription";
 import { useReviewPrompt } from "./src/hooks/useReviewPrompt";
-import { initFirebase } from "./src/services/firebase";
+import { initFirebase, onAuthStateChanged, signOut, UserProfile } from "./src/services/firebase";
 import { Colors } from "./src/constants/theme";
 
 export default function App() {
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [proStatusVisible, setProStatusVisible] = useState(false);
+  const [authVisible, setAuthVisible] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [firebaseReady, setFirebaseReady] = useState(false);
 
   const { isPro } = useSubscription();
-  const { isModalVisible: isReviewVisible, triggerHappyMoodReview, handleUserReviewed, handleUserDismissed } = useReviewPrompt();
+  const { isModalVisible: isReviewVisible, handleUserReviewed, handleUserDismissed } = useReviewPrompt();
 
   useEffect(() => {
-    initFirebase();
+    (async () => {
+      const ready = await initFirebase();
+      setFirebaseReady(ready);
+    })();
   }, []);
+
+  useEffect(() => {
+    if (!firebaseReady) return;
+    const unsubscribe = onAuthStateChanged((user) => {
+      setCurrentUser(user);
+    });
+    return unsubscribe;
+  }, [firebaseReady]);
 
   const isDark = true;
   const uiBg = isDark ? Colors.dark.bg : Colors.light.bg;
   const uiBorder = isDark ? Colors.dark.border : Colors.light.border;
   const uiCard = isDark ? Colors.dark.card : Colors.light.card;
   const uiText = isDark ? Colors.dark.text : Colors.light.text;
+
+  const handleRequireAuth = useCallback(() => {
+    setAuthVisible(true);
+  }, []);
+
+  const handleAuthSuccess = useCallback(() => {
+    setAuthVisible(false);
+  }, []);
 
   const handleProTab = useCallback(() => {
     if (isPro) {
@@ -34,6 +58,11 @@ export default function App() {
     }
   }, [isPro]);
 
+  const handleSignOut = useCallback(async () => {
+    await signOut();
+    setProStatusVisible(false);
+  }, []);
+
   return (
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor={uiBg} />
@@ -41,7 +70,11 @@ export default function App() {
       <View style={[styles.container, { backgroundColor: uiBg }]}>
         <AdBanner isPro={isPro} isDark={isDark} />
 
-        <HomeScreen isDark={isDark} onOpenPaywall={() => setPaywallVisible(true)} />
+        <HomeScreen
+          isDark={isDark}
+          isUserLoggedIn={!!currentUser}
+          onRequireAuth={handleRequireAuth}
+        />
 
         <View
           style={[
@@ -66,14 +99,30 @@ export default function App() {
               {isPro ? "Pro" : "Upgrade"}
             </Text>
           </Pressable>
+
+          {currentUser && (
+            <Pressable style={styles.tab} onPress={handleSignOut}>
+              <Text style={styles.tabIcon}>{"\uD83D\uDEAA"}</Text>
+              <Text style={styles.tabLabel}>Sign Out</Text>
+            </Pressable>
+          )}
         </View>
       </View>
+
+      <AuthModal
+        isVisible={authVisible}
+        isDark={isDark}
+        onClose={() => setAuthVisible(false)}
+        onAuthSuccess={handleAuthSuccess}
+      />
 
       <PaywallModal
         isVisible={paywallVisible}
         onClose={() => setPaywallVisible(false)}
         onSubscribeSuccess={() => setPaywallVisible(false)}
       />
+
+      <AppGuideModal isDark={isDark} />
 
       <Modal
         visible={proStatusVisible}
