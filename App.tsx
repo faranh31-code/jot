@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { View, Text, Pressable, StyleSheet, StatusBar, Modal } from "react-native";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { View, Text, Pressable, StyleSheet, StatusBar, Modal, Alert } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import HomeScreen from "./src/screens/HomeScreen";
 import PaywallModal from "./src/components/PaywallModal";
 import AuthModal from "./src/components/AuthModal";
@@ -17,6 +17,7 @@ export default function App() {
   const [authVisible, setAuthVisible] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [firebaseReady, setFirebaseReady] = useState(false);
+  const [isDark, setIsDark] = useState(true);
 
   const { isPro } = useSubscription();
   const { isModalVisible: isReviewVisible, handleUserReviewed, handleUserDismissed } = useReviewPrompt();
@@ -36,7 +37,6 @@ export default function App() {
     return unsubscribe;
   }, [firebaseReady]);
 
-  const isDark = true;
   const uiBg = isDark ? Colors.dark.bg : Colors.light.bg;
   const uiBorder = isDark ? Colors.dark.border : Colors.light.border;
   const uiCard = isDark ? Colors.dark.card : Colors.light.card;
@@ -58,17 +58,59 @@ export default function App() {
     }
   }, [isPro]);
 
-  const handleSignOut = useCallback(async () => {
-    await signOut();
-    setProStatusVisible(false);
+  const handleSignOut = useCallback(() => {
+    Alert.alert("Log Out", "Do you want to log out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Log Out",
+        style: "destructive",
+        onPress: async () => {
+          await signOut();
+          setProStatusVisible(false);
+        },
+      },
+    ]);
   }, []);
+
+  const toggleTheme = useCallback(() => {
+    setIsDark((prev) => !prev);
+  }, []);
+
+  const userGreeting = currentUser?.displayName
+    ? `Hello, ${currentUser.displayName}`
+    : currentUser?.email
+    ? `Hello, ${currentUser.email.split("@")[0]}`
+    : "Text Saver";
 
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle="light-content" backgroundColor={uiBg} />
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={uiBg} />
 
-      <View style={[styles.container, { backgroundColor: uiBg }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: uiBg }]} edges={["top"]}>
         <AdBanner isPro={isPro} isDark={isDark} />
+
+        <View style={[styles.header, { borderBottomColor: uiBorder }]}>
+          <View style={styles.headerLeft}>
+            <Text style={[styles.headerGreeting, { color: uiText }]} numberOfLines={1}>
+              {currentUser ? userGreeting : "Text Saver"}
+            </Text>
+            <Text style={[styles.headerSubtitle, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]}>
+              {currentUser
+                ? `${currentUser.email || ""}`
+                : "Sign in to sync your entries"}
+            </Text>
+          </View>
+          <View style={styles.headerRight}>
+            <Pressable style={[styles.headerBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" }]} onPress={toggleTheme}>
+              <Text style={styles.headerBtnIcon}>{isDark ? "\u2600\uFE0F" : "\uD83C\uDF19"}</Text>
+            </Pressable>
+            {currentUser && (
+              <Pressable style={[styles.headerBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" }]} onPress={handleSignOut}>
+                <Text style={styles.headerBtnIcon}>{"\uD83D\uDEAA"}</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
 
         <HomeScreen
           isDark={isDark}
@@ -76,18 +118,9 @@ export default function App() {
           onRequireAuth={handleRequireAuth}
         />
 
-        <View
-          style={[
-            styles.tabBar,
-            { backgroundColor: uiBg, borderTopColor: uiBorder },
-          ]}
-        >
+        <View style={[styles.tabBar, { backgroundColor: uiBg, borderTopColor: uiBorder }]}>
           <Pressable
-            style={[
-              styles.tab,
-              styles.tabActive,
-              { backgroundColor: "rgba(108,99,255,0.15)" },
-            ]}
+            style={[styles.tab, { backgroundColor: "rgba(108,99,255,0.15)" }]}
           >
             <Text style={[styles.tabIcon, styles.tabIconActive]}>{"\uD83D\uDCCB"}</Text>
             <Text style={[styles.tabLabel, styles.tabLabelActive]}>Entries</Text>
@@ -99,15 +132,8 @@ export default function App() {
               {isPro ? "Pro" : "Upgrade"}
             </Text>
           </Pressable>
-
-          {currentUser && (
-            <Pressable style={styles.tab} onPress={handleSignOut}>
-              <Text style={styles.tabIcon}>{"\uD83D\uDEAA"}</Text>
-              <Text style={styles.tabLabel}>Sign Out</Text>
-            </Pressable>
-          )}
         </View>
-      </View>
+      </SafeAreaView>
 
       <AuthModal
         isVisible={authVisible}
@@ -130,31 +156,21 @@ export default function App() {
         animationType="fade"
         onRequestClose={() => setProStatusVisible(false)}
       >
-        <Pressable style={styles.proOverlay} onPress={() => setProStatusVisible(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setProStatusVisible(false)}>
           <Pressable
-            style={[styles.proCard, { backgroundColor: uiCard, borderColor: uiBorder }]}
+            style={[styles.modalCard, { backgroundColor: uiCard, borderColor: uiBorder }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <Text style={styles.proIcon}>{"\u2B50"}</Text>
-            <Text style={[styles.proTitle, { color: uiText }]}>
-              You are already a Pro member!
-            </Text>
-            <Text style={[styles.proSubtitle, { color: isDark ? "#888" : "#666" }]}>
+            <Text style={styles.modalIcon}>{"\u2B50"}</Text>
+            <Text style={[styles.modalTitle, { color: uiText }]}>You are already a Pro member!</Text>
+            <Text style={[styles.modalSubtitle, { color: isDark ? "#888" : "#666" }]}>
               All premium features are unlocked and ready to use.
             </Text>
-            <View
-              style={[
-                styles.proBadge,
-                { backgroundColor: isDark ? "rgba(108,99,255,0.2)" : "rgba(108,99,255,0.1)" },
-              ]}
-            >
-              <Text style={styles.proBadgeText}>Active Subscription</Text>
+            <View style={[styles.modalBadge, { backgroundColor: isDark ? "rgba(108,99,255,0.2)" : "rgba(108,99,255,0.1)" }]}>
+              <Text style={styles.modalBadgeText}>Active Subscription</Text>
             </View>
-            <Pressable
-              style={styles.proCloseBtn}
-              onPress={() => setProStatusVisible(false)}
-            >
-              <Text style={styles.proCloseBtnText}>Done</Text>
+            <Pressable style={styles.modalCloseBtn} onPress={() => setProStatusVisible(false)}>
+              <Text style={styles.modalCloseBtnText}>Done</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -166,24 +182,22 @@ export default function App() {
         animationType="fade"
         onRequestClose={handleUserDismissed}
       >
-        <Pressable style={styles.reviewOverlay} onPress={handleUserDismissed}>
+        <Pressable style={styles.modalOverlay} onPress={handleUserDismissed}>
           <Pressable
-            style={[styles.reviewCard, { backgroundColor: uiCard, borderColor: uiBorder }]}
+            style={[styles.modalCard, { backgroundColor: uiCard, borderColor: uiBorder }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <Text style={styles.reviewIcon}>{"\uD83D\uDE0A"}</Text>
-            <Text style={[styles.reviewTitle, { color: uiText }]}>
-              Enjoying Text Saver?
-            </Text>
-            <Text style={[styles.reviewSubtitle, { color: isDark ? "#888" : "#666" }]}>
+            <Text style={styles.modalIcon}>{"\uD83D\uDE0A"}</Text>
+            <Text style={[styles.modalTitle, { color: uiText }]}>Enjoying Text Saver?</Text>
+            <Text style={[styles.modalSubtitle, { color: isDark ? "#888" : "#666" }]}>
               Your review helps us improve and grow!
             </Text>
-            <View style={styles.reviewActions}>
-              <Pressable style={styles.reviewBtnPrimary} onPress={handleUserReviewed}>
-                <Text style={styles.reviewBtnPrimaryText}>Rate App</Text>
+            <View style={styles.modalActions}>
+              <Pressable style={styles.modalPrimaryBtn} onPress={handleUserReviewed}>
+                <Text style={styles.modalPrimaryBtnText}>Rate App</Text>
               </Pressable>
-              <Pressable style={styles.reviewBtnSecondary} onPress={handleUserDismissed}>
-                <Text style={[styles.reviewBtnSecondaryText, { color: isDark ? "#888" : "#666" }]}>
+              <Pressable style={styles.modalSecondaryBtn} onPress={handleUserDismissed}>
+                <Text style={[styles.modalSecondaryBtnText, { color: isDark ? "#888" : "#666" }]}>
                   Maybe Later
                 </Text>
               </Pressable>
@@ -199,6 +213,40 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  headerLeft: {
+    flex: 1,
+    marginRight: 12,
+  },
+  headerGreeting: {
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  headerRight: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerBtnIcon: {
+    fontSize: 18,
+  },
   tabBar: {
     flexDirection: "row",
     borderTopWidth: 1,
@@ -213,9 +261,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 12,
     gap: 2,
-  },
-  tabActive: {
-    opacity: 1,
   },
   tabIcon: {
     fontSize: 20,
@@ -234,14 +279,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     opacity: 1,
   },
-  proOverlay: {
+  modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "center",
     alignItems: "center",
     padding: 24,
   },
-  proCard: {
+  modalCard: {
     width: "100%",
     maxWidth: 340,
     borderRadius: 24,
@@ -249,56 +294,38 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
   },
-  proIcon: { fontSize: 48, marginBottom: 16 },
-  proTitle: { fontSize: 20, fontWeight: "700", textAlign: "center", marginBottom: 8 },
-  proSubtitle: { fontSize: 14, textAlign: "center", marginBottom: 20, lineHeight: 20 },
-  proBadge: {
+  modalIcon: { fontSize: 48, marginBottom: 16 },
+  modalTitle: { fontSize: 20, fontWeight: "700", textAlign: "center", marginBottom: 8 },
+  modalSubtitle: { fontSize: 14, textAlign: "center", marginBottom: 20, lineHeight: 20 },
+  modalBadge: {
     paddingVertical: 8,
     paddingHorizontal: 20,
     borderRadius: 20,
     marginBottom: 24,
   },
-  proBadgeText: { color: Colors.accent, fontSize: 13, fontWeight: "700" },
-  proCloseBtn: {
+  modalBadgeText: { color: Colors.accent, fontSize: 13, fontWeight: "700" },
+  modalCloseBtn: {
     backgroundColor: Colors.accent,
     paddingVertical: 14,
     paddingHorizontal: 48,
     borderRadius: 14,
   },
-  proCloseBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  reviewOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24,
-  },
-  reviewCard: {
-    width: "100%",
-    maxWidth: 340,
-    borderRadius: 24,
-    padding: 32,
-    alignItems: "center",
-    borderWidth: 1,
-  },
-  reviewIcon: { fontSize: 48, marginBottom: 16 },
-  reviewTitle: { fontSize: 20, fontWeight: "700", textAlign: "center", marginBottom: 8 },
-  reviewSubtitle: { fontSize: 14, textAlign: "center", marginBottom: 24, lineHeight: 20 },
-  reviewActions: {
+  modalCloseBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  modalActions: {
     width: "100%",
     gap: 12,
   },
-  reviewBtnPrimary: {
+  modalPrimaryBtn: {
     backgroundColor: Colors.accent,
     paddingVertical: 14,
     borderRadius: 14,
     alignItems: "center",
   },
-  reviewBtnPrimaryText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  reviewBtnSecondary: {
+  modalPrimaryBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  modalSecondaryBtn: {
     paddingVertical: 14,
     borderRadius: 14,
     alignItems: "center",
   },
-  reviewBtnSecondaryText: { fontSize: 15, fontWeight: "600" },
+  modalSecondaryBtnText: { fontSize: 15, fontWeight: "600" },
 });

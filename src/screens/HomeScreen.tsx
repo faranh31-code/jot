@@ -128,25 +128,7 @@ export default function HomeScreen({ isDark, isUserLoggedIn, onRequireAuth }: Ho
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? Colors.dark.bg : Colors.light.bg }]}>
-      <View style={styles.header}>
-        <Text
-          style={[styles.headerTitle, { color: isDark ? Colors.dark.text : Colors.light.text }]}
-        >
-          Text Saver
-        </Text>
-        <Text
-          style={[
-            styles.headerSubtitle,
-            { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary },
-          ]}
-        >
-          {isUserLoggedIn
-            ? `${entries.length} ${entries.length === 1 ? "entry" : "entries"}`
-            : "Sign in to save your entries"}
-        </Text>
-      </View>
-
+      <View style={[styles.container, { backgroundColor: isDark ? Colors.dark.bg : Colors.light.bg }]}>
       {entries.length === 0 && isUserLoggedIn ? (
         <EmptyState isDark={isDark} />
       ) : entries.length === 0 && !isUserLoggedIn ? (
@@ -222,19 +204,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-  },
-  header: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.lg,
-    paddingBottom: Spacing.md,
-  },
-  headerTitle: {
-    fontSize: FontSize.hero,
-    fontWeight: "800",
-  },
-  headerSubtitle: {
-    fontSize: FontSize.sm,
-    marginTop: Spacing.xs,
   },
   listContent: {
     paddingHorizontal: Spacing.lg,

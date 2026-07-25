@@ -49,6 +49,7 @@ export default function PaywallModal({
   };
 
   const handleRevenueCatPaywall = useCallback(async () => {
+    if (__DEV__) { handleClose(); return; }
     try {
       const uiMod = await import("react-native-purchases-ui");
       const result = await uiMod.default.presentPaywall();

@@ -17,6 +17,7 @@ interface UseSubscriptionReturn {
 }
 
 async function loadNativeModules(): Promise<boolean> {
+  if (__DEV__) return false;
   try {
     const purchasesMod = await import("react-native-purchases");
     PurchasesRef = purchasesMod.default;

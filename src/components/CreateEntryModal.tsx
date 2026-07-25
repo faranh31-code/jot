@@ -56,121 +56,71 @@ export default function CreateEntryModal({
     onClose();
   };
 
+  const bgColor = isDark ? Colors.dark.bg : Colors.light.card;
+  const textColor = isDark ? Colors.dark.text : Colors.light.text;
+  const mutedColor = isDark ? Colors.dark.textSecondary : Colors.light.textSecondary;
+  const borderColor = isDark ? Colors.dark.border : Colors.light.border;
+  const inputBg = isDark ? Colors.dark.card : "#f0f0f0";
+  const placeholderColor = isDark ? Colors.dark.textMuted : Colors.light.textMuted;
+
   return (
-    <Modal visible={isVisible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={isVisible} transparent animationType="fade" onRequestClose={onClose}>
       <KeyboardAvoidingView
         style={styles.overlay}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <Pressable style={styles.backdrop} onPress={onClose} />
-        <View
-          style={[
-            styles.container,
-            {
-              backgroundColor: isDark ? Colors.dark.bg : Colors.light.card,
-              borderTopColor: isDark ? Colors.dark.border : Colors.light.border,
-            },
-          ]}
-        >
-          <View style={styles.handle} />
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <Text
-              style={[styles.title, { color: isDark ? Colors.dark.text : Colors.light.text }]}
-            >
-              {editData ? "Edit Entry" : "New Entry"}
-            </Text>
+        <View style={[styles.container, { backgroundColor: bgColor, borderColor }]}>
+          <Text style={[styles.title, { color: textColor }]}>
+            {editData ? "Edit Entry" : "New Entry"}
+          </Text>
 
-            <Text
-              style={[
-                styles.label,
-                { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary },
-              ]}
+          <Text style={[styles.label, { color: mutedColor }]}>Headline</Text>
+          <TextInput
+            style={[styles.input, { backgroundColor: inputBg, color: textColor, borderColor }]}
+            placeholder="e.g., My Social Media Links"
+            placeholderTextColor={placeholderColor}
+            value={headline}
+            onChangeText={setHeadline}
+            maxLength={100}
+          />
+
+          <Text style={[styles.label, { color: mutedColor }]}>Content</Text>
+          <TextInput
+            style={[styles.input, styles.contentInput, { backgroundColor: inputBg, color: textColor, borderColor }]}
+            placeholder="Paste or type your content here..."
+            placeholderTextColor={placeholderColor}
+            value={content}
+            onChangeText={setContent}
+            multiline
+            textAlignVertical="top"
+          />
+
+          <View style={styles.actions}>
+            <Pressable
+              style={[styles.cancelBtn, { borderColor }]}
+              onPress={onClose}
             >
-              Headline
-            </Text>
-            <TextInput
+              <Text style={[styles.cancelBtnText, { color: textColor }]}>Cancel</Text>
+            </Pressable>
+            <Pressable
               style={[
-                styles.input,
-                styles.headlineInput,
+                styles.saveBtn,
                 {
-                  backgroundColor: isDark ? Colors.dark.card : "#f0f0f0",
-                  color: isDark ? Colors.dark.text : Colors.light.text,
-                  borderColor: isDark ? Colors.dark.border : Colors.light.border,
+                  backgroundColor:
+                    headline.trim() && content.trim()
+                      ? Colors.accent
+                      : isDark
+                      ? Colors.dark.border
+                      : Colors.light.border,
                 },
               ]}
-              placeholder="e.g., My Social Media Links"
-              placeholderTextColor={isDark ? Colors.dark.textMuted : Colors.light.textMuted}
-              value={headline}
-              onChangeText={setHeadline}
-              maxLength={100}
-            />
-
-            <Text
-              style={[
-                styles.label,
-                { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary },
-              ]}
+              onPress={handleSave}
+              disabled={!headline.trim() || !content.trim()}
             >
-              Content
-            </Text>
-            <TextInput
-              style={[
-                styles.input,
-                styles.contentInput,
-                {
-                  backgroundColor: isDark ? Colors.dark.card : "#f0f0f0",
-                  color: isDark ? Colors.dark.text : Colors.light.text,
-                  borderColor: isDark ? Colors.dark.border : Colors.light.border,
-                },
-              ]}
-              placeholder="Paste or type your content here..."
-              placeholderTextColor={isDark ? Colors.dark.textMuted : Colors.light.textMuted}
-              value={content}
-              onChangeText={setContent}
-              multiline
-              textAlignVertical="top"
-            />
-
-            <View style={styles.actions}>
-              <Pressable
-                style={[
-                  styles.cancelBtn,
-                  {
-                    backgroundColor: "transparent",
-                    borderWidth: 1,
-                    borderColor: isDark ? Colors.dark.border : Colors.light.border,
-                  },
-                ]}
-                onPress={onClose}
-              >
-                <Text
-                  style={[
-                    styles.cancelBtnText,
-                    { color: isDark ? Colors.dark.text : Colors.light.text },
-                  ]}
-                >
-                  Cancel
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.saveBtn,
-                  {
-                    backgroundColor:
-                      headline.trim() && content.trim()
-                        ? Colors.accent
-                        : isDark
-                        ? Colors.dark.border
-                        : Colors.light.border,
-                  },
-                ]}
-                onPress={handleSave}
-                disabled={!headline.trim() || !content.trim()}
-              >
-                <Text style={styles.saveBtnText}>{editData ? "Update" : "Save"}</Text>
-              </Pressable>
-            </View>
-          </ScrollView>
+              <Text style={styles.saveBtnText}>{editData ? "Update" : "Save"}</Text>
+            </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -180,28 +130,23 @@ export default function CreateEntryModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    justifyContent: "flex-end",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: Spacing.lg,
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.5)",
   },
   container: {
-    borderTopLeftRadius: BorderRadius.xl,
-    borderTopRightRadius: BorderRadius.xl,
-    maxHeight: "85%",
-    borderTopWidth: 1,
+    width: "100%",
+    maxWidth: 420,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
     paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.xl,
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#444",
-    alignSelf: "center",
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.md,
+    paddingTop: Spacing.xl,
+    paddingBottom: Spacing.lg,
+    maxHeight: "80%",
   },
   title: {
     fontSize: FontSize.xxl,
@@ -223,11 +168,8 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     marginBottom: Spacing.md,
   },
-  headlineInput: {
-    height: 48,
-  },
   contentInput: {
-    minHeight: 200,
+    minHeight: 180,
     textAlignVertical: "top",
     paddingTop: Spacing.sm,
   },
@@ -241,6 +183,8 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.md,
     alignItems: "center",
+    borderWidth: 1,
+    backgroundColor: "transparent",
   },
   cancelBtnText: {
     fontSize: FontSize.md,

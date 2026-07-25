@@ -39,6 +39,7 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
 
   const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
     clientId: "574020111117-039k9rtq7oi5fkqn6vh4va50ucjne9jf.apps.googleusercontent.com",
@@ -66,7 +67,7 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
   }
 
   async function handleEmailSubmit() {
-    if (!acceptedTerms) {
+    if (mode === "signup" && !acceptedTerms) {
       setError("Please accept the Terms of Service and Privacy Policy");
       return;
     }
@@ -122,7 +123,7 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
   }
 
   async function handleGooglePress() {
-    if (!acceptedTerms) {
+    if (mode === "signup" && !acceptedTerms) {
       setError("Please accept the Terms of Service and Privacy Policy");
       return;
     }
@@ -133,35 +134,26 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
     }
   }
 
+  const bgColor = isDark ? Colors.dark.bg : Colors.light.card;
+  const textColor = isDark ? Colors.dark.text : Colors.light.text;
+  const mutedColor = isDark ? Colors.dark.textSecondary : Colors.light.textSecondary;
+  const borderColor = isDark ? Colors.dark.border : Colors.light.border;
+  const inputBg = isDark ? Colors.dark.card : "#f0f0f0";
+  const placeholderColor = isDark ? Colors.dark.textMuted : Colors.light.textMuted;
+
   return (
-    <Modal visible={isVisible} transparent animationType="slide" onRequestClose={handleClose}>
+    <Modal visible={isVisible} transparent animationType="fade" onRequestClose={handleClose}>
       <KeyboardAvoidingView
         style={styles.overlay}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <Pressable style={styles.backdrop} onPress={handleClose} />
-        <View
-          style={[
-            styles.container,
-            {
-              backgroundColor: isDark ? Colors.dark.bg : Colors.light.card,
-              borderTopColor: isDark ? Colors.dark.border : Colors.light.border,
-            },
-          ]}
-        >
-          <View style={styles.handle} />
+        <View style={[styles.container, { backgroundColor: bgColor, borderColor }]}>
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-            <Text
-              style={[styles.title, { color: isDark ? Colors.dark.text : Colors.light.text }]}
-            >
+            <Text style={[styles.title, { color: textColor }]}>
               {mode === "signin" ? "Welcome Back" : mode === "signup" ? "Create Account" : "Reset Password"}
             </Text>
-            <Text
-              style={[
-                styles.subtitle,
-                { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary },
-              ]}
-            >
+            <Text style={[styles.subtitle, { color: mutedColor }]}>
               {mode === "signin"
                 ? "Sign in to save your entries"
                 : mode === "signup"
@@ -172,40 +164,29 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
             {mode !== "forgot" && (
               <>
                 <Pressable
-                  style={[styles.socialBtn, styles.googleBtn]}
+                  style={[styles.socialBtn, { backgroundColor: "#fff", borderColor: "#dadce0" }]}
                   onPress={handleGooglePress}
                   disabled={loading}
                 >
-                  <View style={styles.googleIcon}>
-                    <Text style={styles.googleIconText}>G</Text>
+                  <View style={styles.googleIconOuter}>
+                    <Text style={{ fontSize: 18, fontWeight: "700", color: "#4285F4" }}>G</Text>
                   </View>
-                  <Text style={[styles.socialBtnLabel, { color: isDark ? "#fff" : "#333" }]}>
-                    Continue with Google
-                  </Text>
+                  <Text style={styles.socialBtnLabel}>Continue with Google</Text>
                 </Pressable>
 
                 <View style={styles.divider}>
-                  <View style={[styles.dividerLine, { backgroundColor: isDark ? Colors.dark.border : Colors.light.border }]} />
-                  <Text style={[styles.dividerText, { color: isDark ? Colors.dark.textMuted : Colors.light.textMuted }]}>
-                    or
-                  </Text>
-                  <View style={[styles.dividerLine, { backgroundColor: isDark ? Colors.dark.border : Colors.light.border }]} />
+                  <View style={[styles.dividerLine, { backgroundColor: borderColor }]} />
+                  <Text style={[styles.dividerText, { color: placeholderColor }]}>or</Text>
+                  <View style={[styles.dividerLine, { backgroundColor: borderColor }]} />
                 </View>
               </>
             )}
 
             {mode === "signup" && (
               <TextInput
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: isDark ? Colors.dark.card : "#f0f0f0",
-                    color: isDark ? Colors.dark.text : Colors.light.text,
-                    borderColor: isDark ? Colors.dark.border : Colors.light.border,
-                  },
-                ]}
+                style={[styles.input, { backgroundColor: inputBg, color: textColor, borderColor }]}
                 placeholder="Name"
-                placeholderTextColor={isDark ? Colors.dark.textMuted : Colors.light.textMuted}
+                placeholderTextColor={placeholderColor}
                 value={displayName}
                 onChangeText={setDisplayName}
                 autoCapitalize="words"
@@ -213,16 +194,9 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
             )}
 
             <TextInput
-              style={[
-                styles.input,
-                {
-                  backgroundColor: isDark ? Colors.dark.card : "#f0f0f0",
-                  color: isDark ? Colors.dark.text : Colors.light.text,
-                  borderColor: isDark ? Colors.dark.border : Colors.light.border,
-                },
-              ]}
+              style={[styles.input, { backgroundColor: inputBg, color: textColor, borderColor }]}
               placeholder="Email"
-              placeholderTextColor={isDark ? Colors.dark.textMuted : Colors.light.textMuted}
+              placeholderTextColor={placeholderColor}
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -232,53 +206,59 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
 
             {mode !== "forgot" && (
               <TextInput
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: isDark ? Colors.dark.card : "#f0f0f0",
-                    color: isDark ? Colors.dark.text : Colors.light.text,
-                    borderColor: isDark ? Colors.dark.border : Colors.light.border,
-                  },
-                ]}
+                style={[styles.input, { backgroundColor: inputBg, color: textColor, borderColor }]}
                 placeholder="Password"
-                placeholderTextColor={isDark ? Colors.dark.textMuted : Colors.light.textMuted}
+                placeholderTextColor={placeholderColor}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry
               />
             )}
 
-            {error ? (
-              <Text style={styles.errorText}>{error}</Text>
-            ) : null}
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-            <Pressable
-              style={styles.termsRow}
-              onPress={() => setAcceptedTerms(!acceptedTerms)}
-            >
-              <View
-                style={[
-                  styles.checkbox,
-                  {
-                    backgroundColor: acceptedTerms ? Colors.accent : "transparent",
-                    borderColor: acceptedTerms ? Colors.accent : isDark ? Colors.dark.border : Colors.light.border,
-                  },
-                ]}
+            {mode === "signup" && (
+              <Pressable
+                style={styles.termsRow}
+                onPress={() => setAcceptedTerms(!acceptedTerms)}
               >
-                {acceptedTerms && <Text style={styles.checkmark}>{"\u2713"}</Text>}
-              </View>
-              <Text
-                style={[
-                  styles.termsText,
-                  { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary },
-                ]}
+                <View
+                  style={[
+                    styles.checkbox,
+                    {
+                      backgroundColor: acceptedTerms ? Colors.accent : "transparent",
+                      borderColor: acceptedTerms ? Colors.accent : borderColor,
+                    },
+                  ]}
+                >
+                  {acceptedTerms && <Text style={styles.checkmark}>{"\u2713"}</Text>}
+                </View>
+                <Text style={[styles.termsText, { color: mutedColor }]}>
+                  I agree to the <Text style={styles.termsLink}>Terms of Service</Text> and{" "}
+                  <Text style={styles.termsLink}>Privacy Policy</Text>
+                </Text>
+              </Pressable>
+            )}
+
+            {mode === "signin" && (
+              <Pressable
+                style={styles.termsRow}
+                onPress={() => setRememberMe(!rememberMe)}
               >
-                I agree to the{" "}
-                <Text style={styles.termsLink}>Terms of Service</Text>
-                {" "}and{" "}
-                <Text style={styles.termsLink}>Privacy Policy</Text>
-              </Text>
-            </Pressable>
+                <View
+                  style={[
+                    styles.checkbox,
+                    {
+                      backgroundColor: rememberMe ? Colors.accent : "transparent",
+                      borderColor: rememberMe ? Colors.accent : borderColor,
+                    },
+                  ]}
+                >
+                  {rememberMe && <Text style={styles.checkmark}>{"\u2713"}</Text>}
+                </View>
+                <Text style={[styles.termsText, { color: mutedColor }]}>Remember Me</Text>
+              </Pressable>
+            )}
 
             <Pressable
               style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
@@ -289,11 +269,7 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
                 <Text style={styles.submitBtnText}>
-                  {mode === "signin"
-                    ? "Sign In"
-                    : mode === "signup"
-                    ? "Create Account"
-                    : "Send Reset Link"}
+                  {mode === "signin" ? "Sign In" : mode === "signup" ? "Create Account" : "Send Reset Link"}
                 </Text>
               )}
             </Pressable>
@@ -302,22 +278,20 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
               {mode === "signin" ? (
                 <>
                   <Pressable onPress={() => { setMode("signup"); setError(""); }}>
-                    <Text style={[styles.switchText, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]}>
-                      Don't have an account?{" "}
-                      <Text style={styles.switchLink}>Sign Up</Text>
+                    <Text style={[styles.switchText, { color: mutedColor }]}>
+                      Don't have an account? <Text style={styles.switchLink}>Sign Up</Text>
                     </Text>
                   </Pressable>
                   <Pressable onPress={() => { setMode("forgot"); setError(""); }}>
-                    <Text style={[styles.switchText, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary, marginTop: Spacing.sm }]}>
+                    <Text style={[styles.switchText, { color: mutedColor, marginTop: Spacing.sm }]}>
                       Forgot password?
                     </Text>
                   </Pressable>
                 </>
               ) : (
                 <Pressable onPress={() => { setMode("signin"); setError(""); }}>
-                  <Text style={[styles.switchText, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]}>
-                    Already have an account?{" "}
-                    <Text style={styles.switchLink}>Sign In</Text>
+                  <Text style={[styles.switchText, { color: mutedColor }]}>
+                    Already have an account? <Text style={styles.switchLink}>Sign In</Text>
                   </Text>
                 </Pressable>
               )}
@@ -332,28 +306,23 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    justifyContent: "flex-end",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: Spacing.lg,
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.5)",
   },
   container: {
-    borderTopLeftRadius: BorderRadius.xl,
-    borderTopRightRadius: BorderRadius.xl,
-    maxHeight: "90%",
-    borderTopWidth: 1,
+    width: "100%",
+    maxWidth: 400,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
     paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.xl,
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#444",
-    alignSelf: "center",
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.md,
+    paddingTop: Spacing.xl,
+    paddingBottom: Spacing.lg,
+    maxHeight: "85%",
   },
   title: {
     fontSize: FontSize.xxl,
@@ -373,38 +342,22 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     marginBottom: Spacing.sm,
     borderWidth: 1,
-    gap: Spacing.sm,
+    gap: Spacing.md,
   },
-  googleBtn: {
-    backgroundColor: "#fff",
-    borderColor: "#e0e0e0",
-  },
-  socialBtnText: {
-    fontSize: FontSize.lg,
-    fontWeight: "700",
-    color: "#333",
-    width: 28,
-    textAlign: "center",
-  },
-  googleIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#fff",
+  googleIconOuter: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#f1f3f4",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-  },
-  googleIconText: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#4285F4",
   },
   socialBtnLabel: {
     fontSize: FontSize.md,
     fontWeight: "600",
+    color: "#3c4043",
     flex: 1,
+    textAlign: "center",
   },
   divider: {
     flexDirection: "row",
