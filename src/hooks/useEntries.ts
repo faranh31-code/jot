@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { TextEntry, getEntries, addEntry, updateEntry, deleteEntry } from "../services/firebase";
 
 interface UseEntriesReturn {
@@ -10,18 +10,20 @@ interface UseEntriesReturn {
   refreshEntries: () => Promise<void>;
 }
 
-export function useEntries(isUserLoggedIn: boolean): UseEntriesReturn {
+export function useEntries(uid: string | null): UseEntriesReturn {
   const [entries, setEntries] = useState<TextEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const uidRef = useRef(uid);
+  uidRef.current = uid;
 
   useEffect(() => {
     loadEntries();
-  }, [isUserLoggedIn]);
+  }, [uid]);
 
   async function loadEntries() {
     setIsLoading(true);
     try {
-      const data = await getEntries();
+      const data = await getEntries(uid || undefined);
       setEntries(data);
     } catch {
       setEntries([]);
@@ -68,7 +70,15 @@ export function useEntries(isUserLoggedIn: boolean): UseEntriesReturn {
   );
 
   const refreshEntries = useCallback(async () => {
-    await loadEntries();
+    setIsLoading(true);
+    try {
+      const data = await getEntries(uidRef.current || undefined);
+      setEntries(data);
+    } catch {
+      setEntries([]);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
   return {

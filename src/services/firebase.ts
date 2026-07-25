@@ -188,8 +188,8 @@ function getUid(): string | null {
   return null;
 }
 
-export async function getEntries(): Promise<TextEntry[]> {
-  const uid = getUid();
+export async function getEntries(uidOverride?: string): Promise<TextEntry[]> {
+  const uid = uidOverride || getUid();
   if (!uid || !db) return [];
   try {
     const q = query(collection(db, ENTRIES_COLLECTION), where("userId", "==", uid));

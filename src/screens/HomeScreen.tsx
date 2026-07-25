@@ -20,14 +20,14 @@ import { useShare } from "../hooks/useShare";
 
 interface HomeScreenProps {
   isDark: boolean;
-  isUserLoggedIn: boolean;
+  uid: string | null;
   isPro: boolean;
   onRequireAuth: () => void;
   onCopyFromPreview?: () => void;
 }
 
-export default function HomeScreen({ isDark, isUserLoggedIn, isPro, onRequireAuth, onCopyFromPreview }: HomeScreenProps) {
-  const { entries, isLoading, createEntry, editEntry, removeEntry, refreshEntries } = useEntries(isUserLoggedIn);
+export default function HomeScreen({ isDark, uid, isPro, onRequireAuth, onCopyFromPreview }: HomeScreenProps) {
+  const { entries, isLoading, createEntry, editEntry, removeEntry, refreshEntries } = useEntries(uid);
   const { copyToClipboard } = useShare();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -89,7 +89,7 @@ export default function HomeScreen({ isDark, isUserLoggedIn, isPro, onRequireAut
 
   const handleEdit = useCallback(
     (id: string, headline: string, content: string) => {
-      if (!isUserLoggedIn) {
+      if (!uid) {
         onRequireAuth();
         return;
       }
@@ -97,18 +97,18 @@ export default function HomeScreen({ isDark, isUserLoggedIn, isPro, onRequireAut
       setEditData({ id, headline, content });
       setTimeout(() => setCreateVisible(true), 300);
     },
-    [isUserLoggedIn, onRequireAuth]
+    [uid, onRequireAuth]
   );
 
   const handleDelete = useCallback(
     async (id: string) => {
-      if (!isUserLoggedIn) {
+      if (!uid) {
         onRequireAuth();
         return;
       }
       await removeEntry(id);
     },
-    [removeEntry, isUserLoggedIn, onRequireAuth]
+    [removeEntry, uid, onRequireAuth]
   );
 
   const handleCopy = useCallback(
@@ -125,7 +125,7 @@ export default function HomeScreen({ isDark, isUserLoggedIn, isPro, onRequireAut
 
   const handleSave = useCallback(
     async (headline: string, content: string) => {
-      if (!isUserLoggedIn) {
+      if (!uid) {
         onRequireAuth();
         return;
       }
@@ -133,12 +133,12 @@ export default function HomeScreen({ isDark, isUserLoggedIn, isPro, onRequireAut
       setSavedToast(true);
       setTimeout(() => setSavedToast(false), 2500);
     },
-    [createEntry, isUserLoggedIn, onRequireAuth]
+    [createEntry, uid, onRequireAuth]
   );
 
   const handleEditSave = useCallback(
     async (id: string, headline: string, content: string) => {
-      if (!isUserLoggedIn) {
+      if (!uid) {
         onRequireAuth();
         return;
       }
@@ -147,17 +147,17 @@ export default function HomeScreen({ isDark, isUserLoggedIn, isPro, onRequireAut
       setSavedToast(true);
       setTimeout(() => setSavedToast(false), 2500);
     },
-    [editEntry, isUserLoggedIn, onRequireAuth]
+    [editEntry, uid, onRequireAuth]
   );
 
   const handleCreatePress = useCallback(() => {
-    if (!isUserLoggedIn) {
+    if (!uid) {
       onRequireAuth();
       return;
     }
     setEditData(null);
     setCreateVisible(true);
-  }, [isUserLoggedIn, onRequireAuth]);
+  }, [uid, onRequireAuth]);
 
   if (isLoading) {
     return (
@@ -174,9 +174,9 @@ export default function HomeScreen({ isDark, isUserLoggedIn, isPro, onRequireAut
 
   return (
       <View style={[styles.container, { backgroundColor: isDark ? Colors.dark.bg : Colors.light.bg }]}>
-      {entries.length === 0 && isUserLoggedIn ? (
+      {entries.length === 0 && !!uid ? (
         <EmptyState isDark={isDark} />
-      ) : entries.length === 0 && !isUserLoggedIn ? (
+      ) : entries.length === 0 && !uid ? (
         <View style={styles.welcomeContainer}>
           <Text style={styles.welcomeIcon}>{"\uD83D\uDCDD"}</Text>
           <Text style={[styles.welcomeTitle, { color: isDark ? Colors.dark.text : Colors.light.text }]}>

@@ -129,7 +129,7 @@ export default function App() {
 
         <HomeScreen
           isDark={isDark}
-          isUserLoggedIn={!!currentUser}
+          uid={currentUser?.uid || null}
           isPro={isPro}
           onRequireAuth={handleRequireAuth}
           onCopyFromPreview={handleCopyFromPreview}
