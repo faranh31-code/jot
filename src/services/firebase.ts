@@ -31,6 +31,8 @@ const FIREBASE_CONFIG = {
   appId: "1:574020111117:web:e1324b389fd3ec27eb3e44",
 };
 
+const AUTH_STORAGE_KEY = "jotapp_firebase_auth";
+
 let firebaseApp: any = null;
 let auth: any = null;
 let db: any = null;
@@ -55,6 +57,29 @@ export interface UserProfile {
 
 const ENTRIES_COLLECTION = "entries";
 
+async function saveAuthCredentials(email: string, password: string) {
+  try {
+    const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+    await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ email, password }));
+  } catch {}
+}
+
+async function loadAuthCredentials(): Promise<{ email: string; password: string } | null> {
+  try {
+    const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+    const raw = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
+async function clearAuthCredentials() {
+  try {
+    const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+    await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+  } catch {}
+}
+
 export async function initFirebase(): Promise<boolean> {
   if (firebaseInitialized) return true;
   try {
@@ -68,6 +93,19 @@ export async function initFirebase(): Promise<boolean> {
     db = getFirestore(firebaseApp);
     firebaseInitialized = true;
     console.log("[Firebase] Initialized successfully (JS SDK)");
+
+    // Restore saved auth credentials
+    const saved = await loadAuthCredentials();
+    if (saved && !auth.currentUser) {
+      try {
+        await signInWithEmailAndPassword(auth, saved.email, saved.password);
+        console.log("[Firebase] Auth restored from storage");
+      } catch {
+        console.log("[Firebase] Saved credentials expired, clearing");
+        await clearAuthCredentials();
+      }
+    }
+
     return true;
   } catch (err) {
     console.warn("[Firebase] Init failed:", err);
@@ -123,6 +161,7 @@ export async function signUpWithEmail(email: string, password: string): Promise<
   if (!auth) return { success: false, error: "Firebase not initialized" };
   try {
     await createUserWithEmailAndPassword(auth, email, password);
+    await saveAuthCredentials(email, password);
     return { success: true };
   } catch (err: any) {
     const code = err?.code || "";
@@ -137,6 +176,7 @@ export async function signInWithEmail(email: string, password: string): Promise<
   if (!auth) return { success: false, error: "Firebase not initialized" };
   try {
     await signInWithEmailAndPassword(auth, email, password);
+    await saveAuthCredentials(email, password);
     return { success: true };
   } catch (err: any) {
     const code = err?.code || "";
@@ -163,6 +203,7 @@ export async function signInWithGoogle(idToken: string): Promise<{ success: bool
 export async function signOut(): Promise<void> {
   if (!auth) return;
   try {
+    await clearAuthCredentials();
     await firebaseSignOut(auth);
   } catch (err) {
     console.warn("[Firebase] signOut failed:", err);
@@ -203,9 +244,12 @@ export async function getEntries(uidOverride?: string): Promise<TextEntry[]> {
   }
 }
 
-export async function addEntry(headline: string, content: string): Promise<TextEntry | null> {
-  const uid = getUid();
-  if (!uid || !db) return null;
+export async function addEntry(headline: string, content: string, uidOverride?: string): Promise<TextEntry | null> {
+  const uid = uidOverride || getUid();
+  if (!uid || !db) {
+    console.warn("[Firebase] addEntry failed: uid=" + (uid || "null") + " db=" + (db ? "ok" : "null"));
+    return null;
+  }
   try {
     const now = Date.now();
     const docRef = await addDoc(collection(db, ENTRIES_COLLECTION), {
@@ -215,6 +259,7 @@ export async function addEntry(headline: string, content: string): Promise<TextE
       updatedAt: now,
       userId: uid,
     });
+    console.log("[Firebase] addEntry success: id=" + docRef.id);
     return { id: docRef.id, headline, content, createdAt: now, updatedAt: now, userId: uid };
   } catch (err) {
     console.warn("[Firebase] addEntry failed:", err);

@@ -34,7 +34,7 @@ export function useEntries(uid: string | null): UseEntriesReturn {
 
   const createEntry = useCallback(
     async (headline: string, content: string): Promise<TextEntry | null> => {
-      const entry = await addEntry(headline, content);
+      const entry = await addEntry(headline, content, uidRef.current || undefined);
       if (entry) {
         setEntries((prev) => [entry, ...prev]);
       }
