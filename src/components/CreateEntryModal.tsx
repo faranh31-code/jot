@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -6,9 +6,9 @@ import {
   StyleSheet,
   Modal,
   Pressable,
-  ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Keyboard,
 } from "react-native";
 import { Colors, BorderRadius, Spacing, FontSize } from "../constants/theme";
 
@@ -31,6 +31,7 @@ export default function CreateEntryModal({
 }: CreateEntryModalProps) {
   const [headline, setHeadline] = useState("");
   const [content, setContent] = useState("");
+  const contentRef = useRef<TextInput>(null);
 
   useEffect(() => {
     if (editData) {
@@ -44,6 +45,8 @@ export default function CreateEntryModal({
 
   const handleSave = () => {
     if (!headline.trim() || !content.trim()) return;
+
+    Keyboard.dismiss();
 
     if (editData) {
       onEditSave(editData.id, headline.trim(), content.trim());
@@ -69,37 +72,46 @@ export default function CreateEntryModal({
         style={styles.overlay}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <Pressable style={styles.backdrop} onPress={onClose} />
+        <Pressable style={styles.backdrop} onPress={() => { Keyboard.dismiss(); onClose(); }} />
         <View style={[styles.container, { backgroundColor: bgColor, borderColor }]}>
-          <Text style={[styles.title, { color: textColor }]}>
-            {editData ? "Edit Entry" : "New Entry"}
-          </Text>
+          <View style={styles.body}>
+            <Text style={[styles.title, { color: textColor }]}>
+              {editData ? "Edit Entry" : "New Entry"}
+            </Text>
 
-          <Text style={[styles.label, { color: mutedColor }]}>Headline</Text>
-          <TextInput
-            style={[styles.input, { backgroundColor: inputBg, color: textColor, borderColor }]}
-            placeholder="e.g., My Social Media Links"
-            placeholderTextColor={placeholderColor}
-            value={headline}
-            onChangeText={setHeadline}
-            maxLength={100}
-          />
+            <Text style={[styles.label, { color: mutedColor }]}>Headline</Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: inputBg, color: textColor, borderColor }]}
+              placeholder="e.g., My Social Media Links"
+              placeholderTextColor={placeholderColor}
+              value={headline}
+              onChangeText={setHeadline}
+              maxLength={100}
+              returnKeyType="next"
+              blurOnSubmit={false}
+              onSubmitEditing={() => contentRef.current?.focus()}
+            />
 
-          <Text style={[styles.label, { color: mutedColor }]}>Content</Text>
-          <TextInput
-            style={[styles.input, styles.contentInput, { backgroundColor: inputBg, color: textColor, borderColor }]}
-            placeholder="Paste or type your content here..."
-            placeholderTextColor={placeholderColor}
-            value={content}
-            onChangeText={setContent}
-            multiline
-            textAlignVertical="top"
-          />
+            <Text style={[styles.label, { color: mutedColor }]}>Content</Text>
+            <TextInput
+              ref={contentRef}
+              style={[styles.input, styles.contentInput, { backgroundColor: inputBg, color: textColor, borderColor }]}
+              placeholder="Paste or type your content here..."
+              placeholderTextColor={placeholderColor}
+              value={content}
+              onChangeText={setContent}
+              multiline
+              textAlignVertical="top"
+              returnKeyType="done"
+              blurOnSubmit
+              onSubmitEditing={handleSave}
+            />
+          </View>
 
-          <View style={styles.actions}>
+          <View style={[styles.actions, { borderTopColor: borderColor }]}>
             <Pressable
               style={[styles.cancelBtn, { borderColor }]}
-              onPress={onClose}
+              onPress={() => { Keyboard.dismiss(); onClose(); }}
             >
               <Text style={[styles.cancelBtnText, { color: textColor }]}>Cancel</Text>
             </Pressable>
@@ -143,10 +155,13 @@ const styles = StyleSheet.create({
     maxWidth: 420,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
+    maxHeight: "85%",
+    overflow: "hidden",
+  },
+  body: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.xl,
-    paddingBottom: Spacing.lg,
-    maxHeight: "80%",
+    paddingBottom: Spacing.sm,
   },
   title: {
     fontSize: FontSize.xxl,
@@ -169,14 +184,16 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   contentInput: {
-    minHeight: 180,
+    minHeight: 200,
     textAlignVertical: "top",
     paddingTop: Spacing.sm,
   },
   actions: {
     flexDirection: "row",
     gap: Spacing.sm,
-    marginTop: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderTopWidth: 1,
   },
   cancelBtn: {
     flex: 1,

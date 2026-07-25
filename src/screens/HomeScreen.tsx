@@ -38,6 +38,7 @@ export default function HomeScreen({ isDark, isUserLoggedIn, onRequireAuth }: Ho
     content: string;
   } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [savedToast, setSavedToast] = useState(false);
 
   const handleEntryPress = useCallback(
     (entry: { id: string; headline: string; content: string }) => {
@@ -89,6 +90,8 @@ export default function HomeScreen({ isDark, isUserLoggedIn, onRequireAuth }: Ho
         return;
       }
       await createEntry(headline, content);
+      setSavedToast(true);
+      setTimeout(() => setSavedToast(false), 2500);
     },
     [createEntry, isUserLoggedIn, onRequireAuth]
   );
@@ -101,6 +104,8 @@ export default function HomeScreen({ isDark, isUserLoggedIn, onRequireAuth }: Ho
       }
       await editEntry(id, headline, content);
       setEditData(null);
+      setSavedToast(true);
+      setTimeout(() => setSavedToast(false), 2500);
     },
     [editEntry, isUserLoggedIn, onRequireAuth]
   );
@@ -190,6 +195,12 @@ export default function HomeScreen({ isDark, isUserLoggedIn, onRequireAuth }: Ho
       {copied && (
         <View style={styles.toast}>
           <Text style={styles.toastText}>Copied to clipboard!</Text>
+        </View>
+      )}
+
+      {savedToast && (
+        <View style={[styles.toast, { backgroundColor: "#2ecc71" }]}>
+          <Text style={styles.toastText}>{"\u2714"} Your entry has been saved successfully</Text>
         </View>
       )}
     </View>
