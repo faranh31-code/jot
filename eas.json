@@ -11,8 +11,8 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "REPLACE_WITH_APPLE_ID",
-        "ascAppId": "REPLACE_WITH_ASC_APP_ID"
+        "appleId": "6794609107",
+        "ascAppId": "6794609107"
       }
     }
   }
