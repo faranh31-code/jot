@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Text Saver",
-    "slug": "text-saver",
+    "name": "Jot - Notes, Save & Copy Text",
+    "slug": "jot-notes-save-copy-text",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -30,7 +30,7 @@
       "favicon": "./assets/favicon.png",
       "bundler": "metro"
     },
-    "scheme": "textsaver",
+    "scheme": "jotapp",
     "plugins": [
       [
         "react-native-google-mobile-ads",

@@ -1,6 +1,6 @@
 import { Platform } from "react-native";
 
-const STORAGE_PREFIX = "textsaver";
+const STORAGE_PREFIX = "jotapp";
 
 interface StorageAdapter {
   getItem(key: string): Promise<string | null>;

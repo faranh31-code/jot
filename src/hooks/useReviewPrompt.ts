@@ -42,7 +42,7 @@ export function useReviewPrompt() {
   const handleUserReviewed = useCallback(async () => {
     try {
       if (Platform.OS === "web") {
-        window.open("https://play.google.com/store/apps/details?id=com.faran.textsaver", "_blank");
+        window.open("https://play.google.com/store/apps/details?id=com.faran.app3", "_blank");
       } else {
         const StoreReview = await import("expo-store-review");
         const isAvailable = await StoreReview.isAvailableAsync();

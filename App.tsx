@@ -80,7 +80,7 @@ export default function App() {
     ? `Hello, ${currentUser.displayName}`
     : currentUser?.email
     ? `Hello, ${currentUser.email.split("@")[0]}`
-    : "Text Saver";
+    : "Jot";
 
   return (
     <SafeAreaProvider>
@@ -92,7 +92,7 @@ export default function App() {
         <View style={[styles.header, { borderBottomColor: uiBorder }]}>
           <View style={styles.headerLeft}>
             <Text style={[styles.headerGreeting, { color: uiText }]} numberOfLines={1}>
-              {currentUser ? userGreeting : "Text Saver"}
+              {currentUser ? userGreeting : "Jot"}
             </Text>
             <Text style={[styles.headerSubtitle, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]}>
               {currentUser
@@ -188,7 +188,7 @@ export default function App() {
             onPress={(e) => e.stopPropagation()}
           >
             <Text style={styles.modalIcon}>{"\uD83D\uDE0A"}</Text>
-            <Text style={[styles.modalTitle, { color: uiText }]}>Enjoying Text Saver?</Text>
+            <Text style={[styles.modalTitle, { color: uiText }]}>Enjoying Jot?</Text>
             <Text style={[styles.modalSubtitle, { color: isDark ? "#888" : "#666" }]}>
               Your review helps us improve and grow!
             </Text>
