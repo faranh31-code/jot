@@ -13,6 +13,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.faran.app3",
+      "icon": "./assets/ios-app-store-icon.png",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "GADApplicationIdentifier": "ca-app-pub-4386055252112057~7597253176",
