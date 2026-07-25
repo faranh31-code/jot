@@ -44,9 +44,7 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
   const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
-    clientId: Platform.OS === "ios"
-      ? "574020111117-XXXXXXX.apps.googleusercontent.com"
-      : "574020111117-XXXXXXX.apps.googleusercontent.com",
+    clientId: "574020111117-039k9rtq7oi5fkqn6vh4va50ucjne9jf.apps.googleusercontent.com",
   });
 
   useEffect(() => {
