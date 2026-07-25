@@ -8,7 +8,7 @@ export function useAdBanner(isPro: boolean) {
   const initialized = useRef(false);
 
   useEffect(() => {
-    if (initialized.current || isPro || Platform.OS === "web") return;
+    if (initialized.current || isPro || Platform.OS === "web" || __DEV__) return;
     initialized.current = true;
 
     (async () => {

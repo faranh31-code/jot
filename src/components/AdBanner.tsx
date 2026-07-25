@@ -1,6 +1,5 @@
-import React, { useEffect, useState, useRef } from "react";
+import React from "react";
 import { View, StyleSheet, Platform } from "react-native";
-import { getBannerAdUnitId } from "../services/ads";
 
 interface AdBannerProps {
   isPro: boolean;
@@ -8,27 +7,33 @@ interface AdBannerProps {
 }
 
 export default function AdBanner({ isPro, isDark }: AdBannerProps) {
-  const [AdComponent, setAdComponent] = useState<any>(null);
-  const [adUnitId, setAdUnitId] = useState<string>("");
-  const loaded = useRef(false);
+  if (isPro || Platform.OS === "web" || __DEV__) return null;
 
-  useEffect(() => {
-    if (isPro || Platform.OS === "web" || loaded.current) return;
+  const [AdComponent, setAdComponent] = React.useState<any>(null);
+  const [adUnitId, setAdUnitId] = React.useState<string>("");
+  const loaded = React.useRef(false);
+
+  React.useEffect(() => {
+    if (isPro || loaded.current || __DEV__) return;
     loaded.current = true;
 
     (async () => {
       try {
         const ads = await import("react-native-google-mobile-ads");
+        const { BannerAd, BannerAdSize } = ads;
+        if (!BannerAd || !BannerAdSize) return;
+
+        const { getBannerAdUnitId } = await import("../services/ads");
         const unitId = getBannerAdUnitId();
         setAdUnitId(unitId);
-        setAdComponent({ BannerAd: ads.BannerAd, BannerAdSize: ads.BannerAdSize });
+        setAdComponent({ BannerAd, BannerAdSize });
       } catch {
-        console.warn("[AdBanner] Native ads module not available in Expo Go");
+        console.warn("[AdBanner] Native ads module not available");
       }
     })();
   }, [isPro]);
 
-  if (isPro || !AdComponent) return null;
+  if (!AdComponent) return null;
 
   const { BannerAd, BannerAdSize } = AdComponent;
 

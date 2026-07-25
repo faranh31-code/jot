@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { initializeApp, getApps, getApp } from "firebase/app";
 import {
   getAuth,
@@ -5,7 +6,6 @@ import {
   signInWithEmailAndPassword,
   signInWithCredential,
   GoogleAuthProvider,
-  OAuthProvider,
   sendPasswordResetEmail,
   signOut as firebaseSignOut,
   onAuthStateChanged as firebaseOnAuthStateChanged,
@@ -64,6 +64,7 @@ export async function initFirebase(): Promise<boolean> {
     } else {
       firebaseApp = getApp();
     }
+
     auth = getAuth(firebaseApp);
     db = getFirestore(firebaseApp);
     firebaseInitialized = true;
@@ -157,18 +158,6 @@ export async function signInWithGoogle(idToken: string): Promise<{ success: bool
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err?.message || "Google sign-in failed" };
-  }
-}
-
-export async function signInWithApple(idToken: string, nonce: string): Promise<{ success: boolean; error?: string }> {
-  if (!auth) return { success: false, error: "Firebase not initialized" };
-  try {
-    const provider = new OAuthProvider("apple.com");
-    const credential = provider.credential({ idToken, rawNonce: nonce });
-    await signInWithCredential(auth, credential);
-    return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err?.message || "Apple sign-in failed" };
   }
 }
 

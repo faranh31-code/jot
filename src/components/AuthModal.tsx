@@ -19,7 +19,6 @@ import {
   signUpWithEmail,
   signInWithEmail,
   signInWithGoogle,
-  signInWithApple,
   resetPassword,
 } from "../services/firebase";
 
@@ -134,44 +133,6 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
     }
   }
 
-  async function handleAppleSignIn() {
-    if (!acceptedTerms) {
-      setError("Please accept the Terms of Service and Privacy Policy");
-      return;
-    }
-
-    try {
-      const Crypto = await import("expo-crypto");
-      const AppleAuthentication = await import("expo-apple-authentication");
-      const nonce = Crypto.randomUUID();
-      const appleResult = await AppleAuthentication.signInAsync({
-        requestedScopes: [
-          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-          AppleAuthentication.AppleAuthenticationScope.EMAIL,
-        ],
-      });
-
-      if (appleResult.identityToken) {
-        setLoading(true);
-        setError("");
-        const result = await signInWithApple(appleResult.identityToken, nonce);
-        setLoading(false);
-
-        if (result.success) {
-          resetForm();
-          onAuthSuccess();
-          handleClose();
-        } else {
-          setError(result.error || "Apple sign-in failed");
-        }
-      }
-    } catch (err: any) {
-      if (err.code !== "ERR_CANCELED") {
-        setError("Apple sign-in failed");
-      }
-    }
-  }
-
   return (
     <Modal visible={isVisible} transparent animationType="slide" onRequestClose={handleClose}>
       <KeyboardAvoidingView
@@ -215,24 +176,13 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
                   onPress={handleGooglePress}
                   disabled={loading}
                 >
-                  <Text style={styles.socialBtnText}>G</Text>
+                  <View style={styles.googleIcon}>
+                    <Text style={styles.googleIconText}>G</Text>
+                  </View>
                   <Text style={[styles.socialBtnLabel, { color: isDark ? "#fff" : "#333" }]}>
                     Continue with Google
                   </Text>
                 </Pressable>
-
-                {Platform.OS === "ios" && (
-                  <Pressable
-                    style={[styles.socialBtn, styles.appleBtn]}
-                    onPress={handleAppleSignIn}
-                    disabled={loading}
-                  >
-                    <Text style={styles.socialBtnText}>{"\u2713"}</Text>
-                    <Text style={[styles.socialBtnLabel, { color: "#fff" }]}>
-                      Continue with Apple
-                    </Text>
-                  </Pressable>
-                )}
 
                 <View style={styles.divider}>
                   <View style={[styles.dividerLine, { backgroundColor: isDark ? Colors.dark.border : Colors.light.border }]} />
@@ -429,16 +379,27 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderColor: "#e0e0e0",
   },
-  appleBtn: {
-    backgroundColor: "#000",
-    borderColor: "#000",
-  },
   socialBtnText: {
     fontSize: FontSize.lg,
     fontWeight: "700",
     color: "#333",
     width: 28,
     textAlign: "center",
+  },
+  googleIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+  },
+  googleIconText: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#4285F4",
   },
   socialBtnLabel: {
     fontSize: FontSize.md,
