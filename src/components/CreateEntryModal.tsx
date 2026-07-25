@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
+  ScrollView,
 } from "react-native";
 import { Colors, BorderRadius, Spacing, FontSize } from "../constants/theme";
 
@@ -31,7 +32,6 @@ export default function CreateEntryModal({
 }: CreateEntryModalProps) {
   const [headline, setHeadline] = useState("");
   const [content, setContent] = useState("");
-  const contentRef = useRef<TextInput>(null);
 
   useEffect(() => {
     if (editData) {
@@ -75,7 +75,7 @@ export default function CreateEntryModal({
       <KeyboardAvoidingView
         style={styles.overlay}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
       >
         <Pressable style={styles.backdrop} onPress={handleClose} />
         <View style={[styles.container, { backgroundColor: bgColor, borderColor }]}>
@@ -88,7 +88,12 @@ export default function CreateEntryModal({
             </Pressable>
           </View>
 
-          <View style={styles.body}>
+          <ScrollView
+            style={styles.scrollBody}
+            contentContainerStyle={styles.scrollBodyContent}
+            keyboardShouldPersistTaps="handled"
+            bounces={false}
+          >
             <Text style={[styles.label, { color: mutedColor }]}>Headline</Text>
             <TextInput
               style={[styles.input, { backgroundColor: inputBg, color: textColor, borderColor }]}
@@ -99,12 +104,10 @@ export default function CreateEntryModal({
               maxLength={100}
               returnKeyType="next"
               blurOnSubmit={false}
-              onSubmitEditing={() => contentRef.current?.focus()}
             />
 
             <Text style={[styles.label, { color: mutedColor }]}>Content</Text>
             <TextInput
-              ref={contentRef}
               style={[styles.input, styles.contentInput, { backgroundColor: inputBg, color: textColor, borderColor }]}
               placeholder="Paste or type your content here..."
               placeholderTextColor={placeholderColor}
@@ -116,7 +119,7 @@ export default function CreateEntryModal({
               blurOnSubmit
               onSubmitEditing={handleSave}
             />
-          </View>
+          </ScrollView>
 
           <View style={[styles.actions, { borderTopColor: borderColor, backgroundColor: bgColor }]}>
             <Pressable
@@ -192,7 +195,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  body: {
+  scrollBody: {
+    flexGrow: 0,
+  },
+  scrollBodyContent: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
     paddingBottom: Spacing.sm,

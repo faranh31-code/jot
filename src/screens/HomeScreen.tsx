@@ -6,6 +6,8 @@ import {
   StyleSheet,
   Pressable,
   ActivityIndicator,
+  Alert,
+  Platform,
 } from "react-native";
 import { Colors, BorderRadius, Spacing, FontSize } from "../constants/theme";
 import EntryCard from "../components/EntryCard";
@@ -39,6 +41,33 @@ export default function HomeScreen({ isDark, isUserLoggedIn, onRequireAuth }: Ho
   } | null>(null);
   const [copied, setCopied] = useState(false);
   const [savedToast, setSavedToast] = useState(false);
+  const [deleteToast, setDeleteToast] = useState(false);
+
+  const confirmDelete = useCallback(
+    (id: string) => {
+      if (Platform.OS === "web") {
+        if (window.confirm("Are you sure you want to delete this entry?")) {
+          removeEntry(id);
+          setDeleteToast(true);
+          setTimeout(() => setDeleteToast(false), 2500);
+        }
+        return;
+      }
+      Alert.alert("Delete Entry", "Are you sure you want to delete this entry?", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            await removeEntry(id);
+            setDeleteToast(true);
+            setTimeout(() => setDeleteToast(false), 2500);
+          },
+        },
+      ]);
+    },
+    [removeEntry]
+  );
 
   const handleEntryPress = useCallback(
     (entry: { id: string; headline: string; content: string }) => {
@@ -157,6 +186,7 @@ export default function HomeScreen({ isDark, isUserLoggedIn, onRequireAuth }: Ho
               createdAt={item.createdAt}
               isDark={isDark}
               onPress={() => handleEntryPress(item)}
+              onDelete={() => confirmDelete(item.id)}
             />
           )}
           contentContainerStyle={styles.listContent}
@@ -194,13 +224,19 @@ export default function HomeScreen({ isDark, isUserLoggedIn, onRequireAuth }: Ho
 
       {copied && (
         <View style={styles.toast}>
-          <Text style={styles.toastText}>Copied to clipboard!</Text>
+          <Text style={styles.toastText}>{"\u2714"} Content copied to clipboard!</Text>
         </View>
       )}
 
       {savedToast && (
         <View style={[styles.toast, { backgroundColor: "#2ecc71" }]}>
           <Text style={styles.toastText}>{"\u2714"} Your entry has been saved successfully</Text>
+        </View>
+      )}
+
+      {deleteToast && (
+        <View style={[styles.toast, { backgroundColor: "#e74c3c" }]}>
+          <Text style={styles.toastText}>Entry deleted</Text>
         </View>
       )}
     </View>
@@ -218,6 +254,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
     paddingBottom: 100,
   },
   welcomeContainer: {
