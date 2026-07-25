@@ -45,7 +45,6 @@ export default function CreateEntryModal({
 
   const handleSave = () => {
     if (!headline.trim() || !content.trim()) return;
-
     Keyboard.dismiss();
 
     if (editData) {
@@ -59,6 +58,11 @@ export default function CreateEntryModal({
     onClose();
   };
 
+  const handleClose = () => {
+    Keyboard.dismiss();
+    onClose();
+  };
+
   const bgColor = isDark ? Colors.dark.bg : Colors.light.card;
   const textColor = isDark ? Colors.dark.text : Colors.light.text;
   const mutedColor = isDark ? Colors.dark.textSecondary : Colors.light.textSecondary;
@@ -67,18 +71,24 @@ export default function CreateEntryModal({
   const placeholderColor = isDark ? Colors.dark.textMuted : Colors.light.textMuted;
 
   return (
-    <Modal visible={isVisible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={isVisible} transparent animationType="fade" onRequestClose={handleClose}>
       <KeyboardAvoidingView
         style={styles.overlay}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
       >
-        <Pressable style={styles.backdrop} onPress={() => { Keyboard.dismiss(); onClose(); }} />
+        <Pressable style={styles.backdrop} onPress={handleClose} />
         <View style={[styles.container, { backgroundColor: bgColor, borderColor }]}>
-          <View style={styles.body}>
+          <View style={[styles.headerRow, { borderBottomColor: borderColor }]}>
             <Text style={[styles.title, { color: textColor }]}>
               {editData ? "Edit Entry" : "New Entry"}
             </Text>
+            <Pressable style={[styles.closeBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" }]} onPress={handleClose}>
+              <Text style={[styles.closeBtnText, { color: mutedColor }]}>✕</Text>
+            </Pressable>
+          </View>
 
+          <View style={styles.body}>
             <Text style={[styles.label, { color: mutedColor }]}>Headline</Text>
             <TextInput
               style={[styles.input, { backgroundColor: inputBg, color: textColor, borderColor }]}
@@ -108,10 +118,10 @@ export default function CreateEntryModal({
             />
           </View>
 
-          <View style={[styles.actions, { borderTopColor: borderColor }]}>
+          <View style={[styles.actions, { borderTopColor: borderColor, backgroundColor: bgColor }]}>
             <Pressable
               style={[styles.cancelBtn, { borderColor }]}
-              onPress={() => { Keyboard.dismiss(); onClose(); }}
+              onPress={handleClose}
             >
               <Text style={[styles.cancelBtnText, { color: textColor }]}>Cancel</Text>
             </Pressable>
@@ -155,18 +165,37 @@ const styles = StyleSheet.create({
     maxWidth: 420,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    maxHeight: "85%",
+    maxHeight: "88%",
     overflow: "hidden",
   },
-  body: {
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.sm,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.md,
+    borderBottomWidth: 1,
   },
   title: {
     fontSize: FontSize.xxl,
     fontWeight: "800",
-    marginBottom: Spacing.lg,
+  },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  closeBtnText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  body: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
   },
   label: {
     fontSize: FontSize.sm,
@@ -184,7 +213,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   contentInput: {
-    minHeight: 200,
+    minHeight: 180,
     textAlignVertical: "top",
     paddingTop: Spacing.sm,
   },

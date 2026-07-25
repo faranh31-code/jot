@@ -10,13 +10,13 @@ interface UseEntriesReturn {
   refreshEntries: () => Promise<void>;
 }
 
-export function useEntries(): UseEntriesReturn {
+export function useEntries(isUserLoggedIn: boolean): UseEntriesReturn {
   const [entries, setEntries] = useState<TextEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     loadEntries();
-  }, []);
+  }, [isUserLoggedIn]);
 
   async function loadEntries() {
     setIsLoading(true);

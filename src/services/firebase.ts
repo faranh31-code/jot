@@ -19,7 +19,6 @@ import {
   doc,
   query,
   where,
-  orderBy,
   getDocs,
 } from "firebase/firestore";
 
@@ -193,9 +192,11 @@ export async function getEntries(): Promise<TextEntry[]> {
   const uid = getUid();
   if (!uid || !db) return [];
   try {
-    const q = query(collection(db, ENTRIES_COLLECTION), where("userId", "==", uid), orderBy("createdAt", "desc"));
+    const q = query(collection(db, ENTRIES_COLLECTION), where("userId", "==", uid));
     const snapshot = await getDocs(q);
-    return snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as TextEntry[];
+    const entries = snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as TextEntry[];
+    entries.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    return entries;
   } catch (err) {
     console.warn("[Firebase] getEntries failed:", err);
     return [];

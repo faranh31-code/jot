@@ -105,8 +105,8 @@ export default function App() {
               <Text style={styles.headerBtnIcon}>{isDark ? "\u2600\uFE0F" : "\uD83C\uDF19"}</Text>
             </Pressable>
             {currentUser && (
-              <Pressable style={[styles.headerBtn, styles.logoutBtn]} onPress={handleSignOut}>
-                <Text style={styles.logoutBtnIcon}>{"\u23FB"}</Text>
+              <Pressable style={[styles.headerBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" }]} onPress={handleSignOut}>
+                <Text style={styles.headerBtnIcon}>{"\uD83D\uDEAA"}</Text>
               </Pressable>
             )}
           </View>
@@ -246,13 +246,6 @@ const styles = StyleSheet.create({
   },
   headerBtnIcon: {
     fontSize: 18,
-  },
-  logoutBtn: {
-    backgroundColor: "rgba(231,76,60,0.15)",
-  },
-  logoutBtnIcon: {
-    fontSize: 18,
-    color: "#e74c3c",
   },
   tabBar: {
     flexDirection: "row",

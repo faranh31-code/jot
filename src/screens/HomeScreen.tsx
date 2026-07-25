@@ -22,7 +22,7 @@ interface HomeScreenProps {
 }
 
 export default function HomeScreen({ isDark, isUserLoggedIn, onRequireAuth }: HomeScreenProps) {
-  const { entries, isLoading, createEntry, editEntry, removeEntry } = useEntries();
+  const { entries, isLoading, createEntry, editEntry, removeEntry } = useEntries(isUserLoggedIn);
   const { copyToClipboard } = useShare();
 
   const [selectedEntry, setSelectedEntry] = useState<{
