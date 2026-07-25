@@ -27,7 +27,8 @@
       "package": "com.faran.app3"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
     },
     "scheme": "textsaver",
     "plugins": [

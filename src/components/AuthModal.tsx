@@ -14,8 +14,6 @@ import {
 } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
-import * as AppleAuthentication from "expo-apple-authentication";
-import * as Crypto from "expo-crypto";
 import { Colors, BorderRadius, Spacing, FontSize } from "../constants/theme";
 import {
   signUpWithEmail,
@@ -143,6 +141,8 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
     }
 
     try {
+      const Crypto = await import("expo-crypto");
+      const AppleAuthentication = await import("expo-apple-authentication");
       const nonce = Crypto.randomUUID();
       const appleResult = await AppleAuthentication.signInAsync({
         requestedScopes: [
