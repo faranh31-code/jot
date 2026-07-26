@@ -130,19 +130,21 @@ export default function EntryDetailModal({
               />
             ) : (
               <Pressable onPress={handleTapToEdit} style={styles.contentPressable}>
-                <Text style={[styles.contentText, { color: muted }]}>{content}</Text>
-                <Pressable
-                  style={[
-                    styles.copyIcon,
-                    { backgroundColor: copySuccess ? "rgba(46,204,113,0.2)" : isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" },
-                  ]}
-                  onPress={handleCopy}
-                  hitSlop={8}
-                >
-                  <Text style={[styles.copyIconText, { color: copySuccess ? "#2ecc71" : muted }]}>
-                    {copySuccess ? "\u2714" : "\uD83D\uDCCB"}
-                  </Text>
-                </Pressable>
+                <View style={styles.contentRow}>
+                  <Text style={[styles.contentText, { color: muted }]}>{content}</Text>
+                  <Pressable
+                    style={[
+                      styles.copyIcon,
+                      { backgroundColor: copySuccess ? "rgba(46,204,113,0.2)" : isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" },
+                    ]}
+                    onPress={handleCopy}
+                    hitSlop={8}
+                  >
+                    <Text style={[styles.copyIconText, { color: copySuccess ? "#2ecc71" : muted }]}>
+                      {copySuccess ? "\u2714" : "\uD83D\uDCCB"}
+                    </Text>
+                  </Pressable>
+                </View>
               </Pressable>
             )}
           </ScrollView>
@@ -224,22 +226,25 @@ const styles = StyleSheet.create({
     minHeight: 200,
   },
   contentPressable: {
-    position: "relative",
-    paddingBottom: 40,
+    paddingTop: Spacing.xs,
+  },
+  contentRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
   },
   contentText: {
+    flex: 1,
     fontSize: FontSize.md,
     lineHeight: 24,
   },
   copyIcon: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
     width: 34,
     height: 34,
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
+    marginTop: -2,
   },
   copyIconText: {
     fontSize: 15,

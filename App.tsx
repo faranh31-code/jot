@@ -132,6 +132,7 @@ export default function App() {
           uid={currentUser?.uid || null}
           isPro={isPro}
           onRequireAuth={handleRequireAuth}
+          onRequirePro={handleProTab}
           onCopyFromPreview={handleCopyFromPreview}
         />
 
