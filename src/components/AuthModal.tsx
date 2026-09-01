@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -12,17 +12,12 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
-import * as WebBrowser from "expo-web-browser";
-import * as Google from "expo-auth-session/providers/google";
-import { Colors, BorderRadius, Spacing, FontSize } from "../constants/theme";
+import { Colors, BorderRadius, Spacing, FontSize, FontFamily } from "../constants/theme";
 import {
   signUpWithEmail,
   signInWithEmail,
-  signInWithGoogle,
   resetPassword,
 } from "../services/firebase";
-
-try { WebBrowser.maybeCompleteAuthSession(); } catch {}
 
 interface AuthModalProps {
   isVisible: boolean;
@@ -40,17 +35,6 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
   const [loading, setLoading] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
-
-  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
-    clientId: "574020111117-039k9rtq7oi5fkqn6vh4va50ucjne9jf.apps.googleusercontent.com",
-  });
-
-  useEffect(() => {
-    if (response?.type === "success") {
-      const { id_token } = response.params;
-      handleGoogleSignIn(id_token);
-    }
-  }, [response]);
 
   function resetForm() {
     setEmail("");
@@ -107,39 +91,13 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
     }
   }
 
-  async function handleGoogleSignIn(idToken: string) {
-    setLoading(true);
-    setError("");
-    const result = await signInWithGoogle(idToken);
-    setLoading(false);
-
-    if (result.success) {
-      resetForm();
-      onAuthSuccess();
-      handleClose();
-    } else {
-      setError(result.error || "Google sign-in failed");
-    }
-  }
-
-  async function handleGooglePress() {
-    if (mode === "signup" && !acceptedTerms) {
-      setError("Please accept the Terms of Service and Privacy Policy");
-      return;
-    }
-    try {
-      await promptAsync();
-    } catch (err) {
-      setError("Google sign-in was cancelled");
-    }
-  }
-
   const bgColor = isDark ? Colors.dark.bg : Colors.light.card;
   const textColor = isDark ? Colors.dark.text : Colors.light.text;
   const mutedColor = isDark ? Colors.dark.textSecondary : Colors.light.textSecondary;
   const borderColor = isDark ? Colors.dark.border : Colors.light.border;
-  const inputBg = isDark ? Colors.dark.card : "#f0f0f0";
+  const inputBg = isDark ? Colors.dark.card : Colors.light.input;
   const placeholderColor = isDark ? Colors.dark.textMuted : Colors.light.textMuted;
+  const linkColor = isDark ? Colors.dark.accentText : Colors.light.accentText;
 
   return (
     <Modal visible={isVisible} transparent animationType="fade" onRequestClose={handleClose}>
@@ -160,27 +118,6 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
                 ? "Create an account to sync across devices"
                 : "Enter your email to reset password"}
             </Text>
-
-            {mode !== "forgot" && (
-              <>
-                <Pressable
-                  style={[styles.socialBtn, { backgroundColor: "#fff", borderColor: "#dadce0" }]}
-                  onPress={handleGooglePress}
-                  disabled={loading}
-                >
-                  <View style={styles.googleIconOuter}>
-                    <Text style={{ fontSize: 18, fontWeight: "700", color: "#4285F4" }}>G</Text>
-                  </View>
-                  <Text style={styles.socialBtnLabel}>Continue with Google</Text>
-                </Pressable>
-
-                <View style={styles.divider}>
-                  <View style={[styles.dividerLine, { backgroundColor: borderColor }]} />
-                  <Text style={[styles.dividerText, { color: placeholderColor }]}>or</Text>
-                  <View style={[styles.dividerLine, { backgroundColor: borderColor }]} />
-                </View>
-              </>
-            )}
 
             {mode === "signup" && (
               <TextInput
@@ -215,7 +152,7 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
               />
             )}
 
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            {error ? <Text style={[styles.errorText, { color: Colors.danger }]}>{error}</Text> : null}
 
             {mode === "signup" && (
               <Pressable
@@ -234,8 +171,8 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
                   {acceptedTerms && <Text style={styles.checkmark}>{"\u2713"}</Text>}
                 </View>
                 <Text style={[styles.termsText, { color: mutedColor }]}>
-                  I agree to the <Text style={styles.termsLink}>Terms of Service</Text> and{" "}
-                  <Text style={styles.termsLink}>Privacy Policy</Text>
+                  I agree to the <Text style={[styles.termsLink, { color: linkColor }]}>Terms of Service</Text> and{" "}
+                  <Text style={[styles.termsLink, { color: linkColor }]}>Privacy Policy</Text>
                 </Text>
               </Pressable>
             )}
@@ -266,7 +203,7 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <ActivityIndicator color={Colors.onAccent} size="small" />
               ) : (
                 <Text style={styles.submitBtnText}>
                   {mode === "signin" ? "Sign In" : mode === "signup" ? "Create Account" : "Send Reset Link"}
@@ -279,7 +216,7 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
                 <>
                   <Pressable onPress={() => { setMode("signup"); setError(""); }}>
                     <Text style={[styles.switchText, { color: mutedColor }]}>
-                      Don't have an account? <Text style={styles.switchLink}>Sign Up</Text>
+                      Don't have an account? <Text style={[styles.switchLink, { color: linkColor }]}>Sign Up</Text>
                     </Text>
                   </Pressable>
                   <Pressable onPress={() => { setMode("forgot"); setError(""); }}>
@@ -291,7 +228,7 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
               ) : (
                 <Pressable onPress={() => { setMode("signin"); setError(""); }}>
                   <Text style={[styles.switchText, { color: mutedColor }]}>
-                    Already have an account? <Text style={styles.switchLink}>Sign In</Text>
+                    Already have an account? <Text style={[styles.switchLink, { color: linkColor }]}>Sign In</Text>
                   </Text>
                 </Pressable>
               )}
@@ -325,52 +262,14 @@ const styles = StyleSheet.create({
     maxHeight: "85%",
   },
   title: {
+    fontFamily: FontFamily.display,
     fontSize: FontSize.xxl,
-    fontWeight: "800",
     marginBottom: Spacing.xs,
   },
   subtitle: {
     fontSize: FontSize.md,
     marginBottom: Spacing.lg,
     lineHeight: 22,
-  },
-  socialBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.md,
-    marginBottom: Spacing.sm,
-    borderWidth: 1,
-    gap: Spacing.md,
-  },
-  googleIconOuter: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#f1f3f4",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  socialBtnLabel: {
-    fontSize: FontSize.md,
-    fontWeight: "600",
-    color: "#3c4043",
-    flex: 1,
-    textAlign: "center",
-  },
-  divider: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginVertical: Spacing.md,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-  },
-  dividerText: {
-    marginHorizontal: Spacing.md,
-    fontSize: FontSize.sm,
   },
   input: {
     borderRadius: BorderRadius.md,
@@ -381,7 +280,6 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   errorText: {
-    color: "#FF3B30",
     fontSize: FontSize.sm,
     marginBottom: Spacing.sm,
   },
@@ -401,7 +299,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   checkmark: {
-    color: "#fff",
+    color: Colors.onAccent,
     fontSize: 12,
     fontWeight: "700",
   },
@@ -411,7 +309,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   termsLink: {
-    color: Colors.accent,
     fontWeight: "600",
   },
   submitBtn: {
@@ -425,7 +322,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   submitBtnText: {
-    color: "#fff",
+    color: Colors.onAccent,
     fontSize: FontSize.lg,
     fontWeight: "700",
   },
@@ -436,7 +333,6 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
   },
   switchLink: {
-    color: Colors.accent,
     fontWeight: "700",
   },
 });

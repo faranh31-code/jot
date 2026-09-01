@@ -1,156 +1,352 @@
-import React, { useState, useCallback, useEffect } from "react";
-import { View, Text, Pressable, StyleSheet, StatusBar, Modal, Alert } from "react-native";
+import React, { useState, useCallback, useEffect, useRef } from "react";
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  StatusBar,
+  AppState,
+  Alert,
+} from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import * as Linking from "expo-linking";
+import { useShareIntent } from "./src/hooks/useShareIntentSafe";
+import * as SplashScreen from "expo-splash-screen";
+import { Ionicons } from "@expo/vector-icons";
 import HomeScreen from "./src/screens/HomeScreen";
-import PaywallModal from "./src/components/PaywallModal";
 import AuthModal from "./src/components/AuthModal";
+import OnboardingModal from "./src/components/OnboardingModal";
+import SettingsModal from "./src/components/SettingsModal";
+import PaywallModal from "./src/components/PaywallModal";
 import AppGuideModal from "./src/components/AppGuideModal";
 import AdBanner from "./src/components/AdBanner";
-import { useSubscription } from "./src/hooks/useSubscription";
+import { useAppSettings } from "./src/hooks/useAppSettings";
 import { useReviewPrompt } from "./src/hooks/useReviewPrompt";
-import { useAdRewarded } from "./src/hooks/useAdRewarded";
-import { initFirebase, onAuthStateChanged, signOut, UserProfile } from "./src/services/firebase";
-import { Colors } from "./src/constants/theme";
+import { useAppFonts } from "./src/hooks/useAppFonts";
+import {
+  initFirebase,
+  onAuthStateChanged,
+  signOut,
+  deleteAccount,
+  getCurrentUser,
+  UserProfile,
+} from "./src/services/firebase";
+import {
+  initializeMobileAds,
+  loadAppOpenAd,
+  showAppOpenAd,
+  loadInterstitial,
+} from "./src/services/ads";
+import { initSubscription, isPro } from "./src/services/subscription";
+import { startSession, endSession, trackEvent, getRetentionStats } from "./src/services/analytics";
+import { Colors, BorderRadius, Spacing, FontSize, FontFamily } from "./src/constants/theme";
 
-function getGreeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 17) return "Good afternoon";
-  return "Good evening";
-}
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function App() {
-  const [paywallVisible, setPaywallVisible] = useState(false);
-  const [proStatusVisible, setProStatusVisible] = useState(false);
-  const [authVisible, setAuthVisible] = useState(false);
+  const fontsLoaded = useAppFonts();
+
+  useEffect(() => {
+    if (fontsLoaded) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [fontsLoaded]);
+
+  const {
+    isDark,
+    hasCompletedOnboarding,
+    isLoaded: settingsLoaded,
+    toggleTheme,
+    completeOnboarding,
+  } = useAppSettings();
+
+  const {
+    isModalVisible: isReviewVisible,
+    handleUserReviewed,
+    handleUserDismissed,
+  } = useReviewPrompt();
+
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [isAnonymous, setIsAnonymous] = useState(false);
   const [firebaseReady, setFirebaseReady] = useState(false);
-  const [isDark, setIsDark] = useState(true);
+  const [authVisible, setAuthVisible] = useState(false);
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallTrigger, setPaywallTrigger] = useState<string | undefined>(undefined);
+  const [onboardingVisible, setOnboardingVisible] = useState(false);
 
-  const { isPro } = useSubscription();
-  const { isModalVisible: isReviewVisible, triggerHappyMoodReview, handleUserReviewed, handleUserDismissed } = useReviewPrompt();
-  const { showRewardAd } = useAdRewarded(isPro);
+  const appState = useRef(AppState.currentState);
 
+  // --- Firebase + Services Init ---
   useEffect(() => {
     (async () => {
       const ready = await initFirebase();
       setFirebaseReady(ready);
+      if (ready) {
+        await initSubscription();
+      }
+      initializeMobileAds();
+      startSession();
+      getRetentionStats();
+
+      setTimeout(() => {
+        loadAppOpenAd();
+        loadInterstitial();
+      }, 5000);
     })();
   }, []);
 
   useEffect(() => {
+    return () => {
+      endSession();
+    };
+  }, []);
+
+  // --- Auth State ---
+  useEffect(() => {
     if (!firebaseReady) return;
     const unsubscribe = onAuthStateChanged((user) => {
       setCurrentUser(user);
+      setIsAnonymous(!!user && !!getCurrentUser()?.provider?.includes("anonymous"));
     });
     return unsubscribe;
   }, [firebaseReady]);
 
-  const uiBg = isDark ? Colors.dark.bg : Colors.light.bg;
-  const uiBorder = isDark ? Colors.dark.border : Colors.light.border;
-  const uiCard = isDark ? Colors.dark.card : Colors.light.card;
-  const uiText = isDark ? Colors.dark.text : Colors.light.text;
-
-  const handleRequireAuth = useCallback(() => {
-    setAuthVisible(true);
-  }, []);
-
-  const handleAuthSuccess = useCallback(() => {
-    setAuthVisible(false);
-  }, []);
-
-  const handleProTab = useCallback(() => {
-    if (isPro) {
-      setProStatusVisible(true);
-    } else {
-      setPaywallVisible(true);
+  // --- Onboarding Gate ---
+  useEffect(() => {
+    if (settingsLoaded && !hasCompletedOnboarding) {
+      setTimeout(() => setOnboardingVisible(true), 600);
     }
-  }, [isPro]);
+  }, [settingsLoaded, hasCompletedOnboarding]);
+
+  // --- Deep Linking (share-into-Jot) ---
+  const [sharedText, setSharedText] = useState<string | null>(null);
+
+  // --- Native Share-to-Jot (OS share sheet from other apps) ---
+  const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent();
+
+  useEffect(() => {
+    if (hasShareIntent && shareIntent?.text) {
+      setSharedText(shareIntent.text);
+      trackEvent({ event: "share_started", params: { type: "share_extension" } });
+      resetShareIntent();
+    }
+  }, [hasShareIntent, shareIntent]);
+
+  useEffect(() => {
+    const handleUrl = (url: string | null) => {
+      if (!url) return;
+      const parsed = Linking.parse(url);
+      if (parsed.scheme === "jotapp") {
+        const text = parsed.queryParams?.text as string | undefined;
+        if (text) {
+          setSharedText(text);
+          trackEvent({ event: "share_started", params: { type: "deep_link" } });
+        }
+        if (parsed.hostname === "share") {
+          const sharedContent = parsed.queryParams?.text as string | undefined;
+          if (sharedContent) {
+            setSharedText(sharedContent);
+            trackEvent({ event: "share_started", params: { type: "share_extension" } });
+          }
+        }
+      }
+    };
+
+    Linking.getInitialURL().then(handleUrl);
+    const sub = Linking.addEventListener("url", (event) =>
+      handleUrl(event.url)
+    );
+    return () => sub.remove();
+  }, []);
+
+  // --- App Foreground ---
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (appState.current.match(/background/) && nextState === "active") {
+        if (!isPro()) {
+          showAppOpenAd();
+        }
+        trackEvent({ event: "active_user" });
+        if (!isPro()) {
+          loadInterstitial();
+        }
+      }
+      appState.current = nextState;
+    });
+    return () => sub.remove();
+  }, []);
+
+  // --- Handlers ---
+  const handleRequireAuth = useCallback(() => setAuthVisible(true), []);
+  const handleOpenSettings = useCallback(() => setSettingsVisible(true), []);
+  const handleOpenPaywall = useCallback((trigger?: string) => {
+    setPaywallTrigger(trigger);
+    setPaywallVisible(true);
+  }, []);
+  const handleAuthSuccess = useCallback(() => setAuthVisible(false), []);
 
   const handleSignOut = useCallback(() => {
-    Alert.alert("Log Out", "Do you want to log out?", [
+    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
       { text: "Cancel", style: "cancel" },
       {
-        text: "Log Out",
+        text: "Sign Out",
         style: "destructive",
         onPress: async () => {
+          const { logoutRevenueCat } = await import("./src/services/subscription");
+          await logoutRevenueCat();
           await signOut();
-          setProStatusVisible(false);
+          setSettingsVisible(false);
         },
       },
     ]);
   }, []);
 
-  const toggleTheme = useCallback(() => {
-    setIsDark((prev) => !prev);
+  const handleDeleteAccount = useCallback(
+    async (password?: string) => {
+      const result = await deleteAccount(password);
+      if (result.success) {
+        setSettingsVisible(false);
+        Alert.alert(
+          "Account Deleted",
+          "Your account and data have been permanently deleted."
+        );
+      }
+      return result;
+    },
+    []
+  );
+
+  const handlePurchase = useCallback(
+    async (plan: "monthly" | "annual" | "lifetime") => {
+      const { purchaseProMonthly, purchaseProAnnual, purchaseProLifetime } =
+        await import("./src/services/subscription");
+      const success =
+        plan === "monthly"
+          ? await purchaseProMonthly()
+          : plan === "annual"
+          ? await purchaseProAnnual()
+          : await purchaseProLifetime();
+      if (success) {
+        setPaywallVisible(false);
+        const planId =
+          plan === "monthly" ? "pro_monthly" : plan === "annual" ? "pro_annual" : "pro_lifetime";
+        trackEvent({ event: "purchase_success", params: { plan: planId } });
+      }
+    },
+    []
+  );
+
+  const handleRestore = useCallback(async () => {
+    const { restorePurchases } = await import("./src/services/subscription");
+    const success = await restorePurchases();
+    if (success) {
+      setPaywallVisible(false);
+    } else {
+      Alert.alert("No Purchases", "No previous purchases found to restore.");
+    }
   }, []);
 
-  const handleSaveSuccess = useCallback(() => {
-    triggerHappyMoodReview();
-  }, [triggerHappyMoodReview]);
+  const onboardingComplete = useCallback(() => {
+    completeOnboarding();
+    setOnboardingVisible(false);
+  }, [completeOnboarding]);
 
-  const handleCopyFromPreview = useCallback(() => {
-    showRewardAd();
-  }, [showRewardAd]);
+  // --- Derived ---
+  const showAds = !isPro();
 
-  const userGreeting = currentUser?.displayName
-    ? `${getGreeting()}, ${currentUser.displayName}`
-    : currentUser?.email
-    ? `${getGreeting()}, ${currentUser.email.split("@")[0]}`
-    : "Jot";
+  if (!fontsLoaded) {
+    return null;
+  }
 
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={uiBg} />
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor={isDark ? Colors.dark.bg : Colors.light.bg}
+      />
 
-      <SafeAreaView style={[styles.container, { backgroundColor: uiBg }]} edges={["top"]}>
-        <AdBanner isPro={isPro} isDark={isDark} />
-
-        <View style={[styles.header, { borderBottomColor: uiBorder }]}>
-          <View style={styles.headerLeft}>
-            <Text style={[styles.headerGreeting, { color: uiText }]} numberOfLines={1}>
-              {currentUser ? userGreeting : "Jot"}
-            </Text>
-            <Text style={[styles.headerSubtitle, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]}>
-              {currentUser ? "Jot" : "Sign in to sync your entries"}
-            </Text>
-          </View>
-          <View style={styles.headerRight}>
-            <Pressable style={[styles.headerBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" }]} onPress={toggleTheme}>
-              <Text style={styles.headerBtnIcon}>{isDark ? "\u2600\uFE0F" : "\uD83C\uDF19"}</Text>
+      <SafeAreaView
+        style={[
+          styles.container,
+          { backgroundColor: isDark ? Colors.dark.bg : Colors.light.bg },
+        ]}
+        edges={["top"]}
+      >
+        <View
+          style={[
+            styles.header,
+            {
+              borderBottomColor: isDark
+                ? Colors.dark.border
+                : Colors.light.border,
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.headerTitle,
+              { color: isDark ? Colors.dark.text : Colors.light.text },
+            ]}
+          >
+            Jot
+          </Text>
+          <View style={styles.headerButtons}>
+            <Pressable
+              style={[
+                styles.headerBtn,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(0,0,0,0.05)",
+                },
+              ]}
+              onPress={toggleTheme}
+              accessibilityRole="button"
+              accessibilityLabel={isDark ? "Switch to light theme" : "Switch to dark theme"}
+            >
+              <Ionicons
+                name={isDark ? "sunny-outline" : "moon-outline"}
+                size={19}
+                color={isDark ? Colors.dark.text : Colors.light.text}
+              />
             </Pressable>
-            {currentUser && (
-              <Pressable style={[styles.headerBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" }]} onPress={handleSignOut}>
-                <Text style={styles.headerBtnIcon}>{"\uD83D\uDEAA"}</Text>
-              </Pressable>
-            )}
+            <Pressable
+              style={[
+                styles.headerBtn,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(0,0,0,0.05)",
+                },
+              ]}
+              onPress={handleOpenSettings}
+              accessibilityRole="button"
+              accessibilityLabel="Open settings"
+            >
+              <Ionicons
+                name="settings-outline"
+                size={19}
+                color={isDark ? Colors.dark.text : Colors.light.text}
+              />
+            </Pressable>
           </View>
         </View>
+
+        {showAds && <AdBanner isDark={isDark} position="top" />}
 
         <HomeScreen
           isDark={isDark}
           uid={currentUser?.uid || null}
-          isPro={isPro}
+          isAnonymous={isAnonymous}
           onRequireAuth={handleRequireAuth}
-          onRequirePro={handleProTab}
-          onCopyFromPreview={handleCopyFromPreview}
+          onOpenSettings={handleOpenSettings}
+          onOpenPaywall={handleOpenPaywall}
+          sharedText={sharedText}
+          onSharedTextConsumed={() => setSharedText(null)}
         />
 
-        <View style={[styles.tabBar, { backgroundColor: uiBg, borderTopColor: uiBorder }]}>
-          <Pressable
-            style={[styles.tab, { backgroundColor: "rgba(108,99,255,0.15)" }]}
-          >
-            <Text style={[styles.tabIcon, styles.tabIconActive]}>{"\uD83D\uDCCB"}</Text>
-            <Text style={[styles.tabLabel, styles.tabLabelActive]}>Entries</Text>
-          </Pressable>
-
-          <Pressable style={styles.tab} onPress={handleProTab}>
-            <Text style={[styles.tabIcon, isPro && styles.tabIconActive]}>{"\u2B50"}</Text>
-            <Text style={[styles.tabLabel, isPro && styles.tabLabelActive]}>
-              {isPro ? "Pro" : "Upgrade"}
-            </Text>
-          </Pressable>
-        </View>
+        {showAds && <AdBanner isDark={isDark} position="bottom" />}
       </SafeAreaView>
 
       <AuthModal
@@ -160,69 +356,115 @@ export default function App() {
         onAuthSuccess={handleAuthSuccess}
       />
 
+      <OnboardingModal
+        isVisible={onboardingVisible}
+        isDark={isDark}
+        onComplete={onboardingComplete}
+      />
+
+      <SettingsModal
+        isVisible={settingsVisible}
+        isDark={isDark}
+        onClose={() => setSettingsVisible(false)}
+        onOpenPaywall={handleOpenPaywall}
+        onOpenAuth={handleRequireAuth}
+        user={currentUser}
+        onSignOut={handleSignOut}
+        onDeleteAccount={handleDeleteAccount}
+      />
+
       <PaywallModal
         isVisible={paywallVisible}
+        isDark={isDark}
+        trigger={paywallTrigger}
         onClose={() => setPaywallVisible(false)}
-        onSubscribeSuccess={() => setPaywallVisible(false)}
+        onPurchase={handlePurchase}
+        onRestore={handleRestore}
       />
 
       <AppGuideModal isDark={isDark} />
 
-      <Modal
-        visible={proStatusVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setProStatusVisible(false)}
-      >
-        <Pressable style={styles.modalOverlay} onPress={() => setProStatusVisible(false)}>
+      {isReviewVisible && (
+        <View style={styles.reviewOverlay}>
           <Pressable
-            style={[styles.modalCard, { backgroundColor: uiCard, borderColor: uiBorder }]}
-            onPress={(e) => e.stopPropagation()}
+            style={styles.reviewBackdrop}
+            onPress={handleUserDismissed}
+          />
+          <View
+            style={[
+              styles.reviewCard,
+              {
+                backgroundColor: isDark
+                  ? Colors.dark.card
+                  : Colors.light.card,
+                borderColor: isDark
+                  ? Colors.dark.border
+                  : Colors.light.border,
+              },
+            ]}
           >
-            <Text style={styles.modalIcon}>{"\u2B50"}</Text>
-            <Text style={[styles.modalTitle, { color: uiText }]}>You are already a Pro member!</Text>
-            <Text style={[styles.modalSubtitle, { color: isDark ? "#888" : "#666" }]}>
-              All premium features are unlocked and ready to use.
-            </Text>
-            <View style={[styles.modalBadge, { backgroundColor: isDark ? "rgba(108,99,255,0.2)" : "rgba(108,99,255,0.1)" }]}>
-              <Text style={styles.modalBadgeText}>Active Subscription</Text>
+            <View
+              style={[
+                styles.reviewIconWrap,
+                { backgroundColor: isDark ? Colors.dark.accentLight : Colors.light.accentLight },
+              ]}
+            >
+              <Ionicons
+                name="heart-outline"
+                size={26}
+                color={isDark ? Colors.dark.accentText : Colors.light.accentText}
+              />
             </View>
-            <Pressable style={styles.modalCloseBtn} onPress={() => setProStatusVisible(false)}>
-              <Text style={styles.modalCloseBtnText}>Done</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal
-        visible={isReviewVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={handleUserDismissed}
-      >
-        <Pressable style={styles.modalOverlay} onPress={handleUserDismissed}>
-          <Pressable
-            style={[styles.modalCard, { backgroundColor: uiCard, borderColor: uiBorder }]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <Text style={styles.modalIcon}>{"\uD83D\uDE0A"}</Text>
-            <Text style={[styles.modalTitle, { color: uiText }]}>Enjoying Jot?</Text>
-            <Text style={[styles.modalSubtitle, { color: isDark ? "#888" : "#666" }]}>
+            <Text
+              style={[
+                styles.reviewTitle,
+                {
+                  color: isDark ? Colors.dark.text : Colors.light.text,
+                },
+              ]}
+            >
+              Enjoying Jot?
+            </Text>
+            <Text
+              style={[
+                styles.reviewSubtitle,
+                {
+                  color: isDark
+                    ? Colors.dark.textSecondary
+                    : Colors.light.textSecondary,
+                },
+              ]}
+            >
               Your review helps us improve and grow!
             </Text>
-            <View style={styles.modalActions}>
-              <Pressable style={styles.modalPrimaryBtn} onPress={handleUserReviewed}>
-                <Text style={styles.modalPrimaryBtnText}>Rate App</Text>
+            <View style={styles.reviewActions}>
+              <Pressable
+                style={styles.reviewPrimaryBtn}
+                onPress={handleUserReviewed}
+              >
+                <Text style={styles.reviewPrimaryBtnText}>Rate App</Text>
               </Pressable>
-              <Pressable style={styles.modalSecondaryBtn} onPress={handleUserDismissed}>
-                <Text style={[styles.modalSecondaryBtnText, { color: isDark ? "#888" : "#666" }]}>
+              <Pressable
+                style={styles.reviewSecondaryBtn}
+                onPress={handleUserDismissed}
+              >
+                <Text
+                  style={[
+                    styles.reviewSecondaryBtnText,
+                    {
+                      color: isDark
+                        ? Colors.dark.textSecondary
+                        : Colors.light.textSecondary,
+                    },
+                  ]}
+                >
                   Maybe Later
                 </Text>
               </Pressable>
             </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+          </View>
+        </View>
+      )}
     </SafeAreaProvider>
   );
 }
@@ -239,111 +481,82 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
   },
-  headerLeft: {
-    flex: 1,
-    marginRight: 12,
+  headerTitle: {
+    fontFamily: FontFamily.display,
+    fontSize: FontSize.xl,
   },
-  headerGreeting: {
-    fontSize: 20,
-    fontWeight: "800",
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  headerRight: {
+  headerButtons: {
     flexDirection: "row",
     gap: 8,
   },
   headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
   },
-  headerBtnIcon: {
-    fontSize: 18,
-  },
-  tabBar: {
-    flexDirection: "row",
-    borderTopWidth: 1,
-    paddingBottom: 20,
-    paddingTop: 8,
-    paddingHorizontal: 12,
-    gap: 6,
-  },
-  tab: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: 8,
-    borderRadius: 12,
-    gap: 2,
-  },
-  tabIcon: {
-    fontSize: 20,
-    opacity: 0.4,
-  },
-  tabIconActive: {
-    opacity: 1,
-  },
-  tabLabel: {
-    fontSize: 11,
-    fontWeight: "500",
-    opacity: 0.5,
-  },
-  tabLabelActive: {
-    color: Colors.accent,
-    fontWeight: "700",
-    opacity: 1,
-  },
-  modalOverlay: {
-    flex: 1,
+  reviewOverlay: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "center",
     alignItems: "center",
     padding: 24,
+    zIndex: 9999,
   },
-  modalCard: {
+  reviewBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  reviewCard: {
     width: "100%",
     maxWidth: 340,
-    borderRadius: 24,
+    borderRadius: BorderRadius.xl,
     padding: 32,
     alignItems: "center",
     borderWidth: 1,
   },
-  modalIcon: { fontSize: 48, marginBottom: 16 },
-  modalTitle: { fontSize: 20, fontWeight: "700", textAlign: "center", marginBottom: 8 },
-  modalSubtitle: { fontSize: 14, textAlign: "center", marginBottom: 20, lineHeight: 20 },
-  modalBadge: {
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    marginBottom: 24,
+  reviewIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: BorderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
   },
-  modalBadgeText: { color: Colors.accent, fontSize: 13, fontWeight: "700" },
-  modalCloseBtn: {
-    backgroundColor: Colors.accent,
-    paddingVertical: 14,
-    paddingHorizontal: 48,
-    borderRadius: 14,
+  reviewTitle: {
+    fontFamily: FontFamily.display,
+    fontSize: FontSize.xl,
+    textAlign: "center",
+    marginBottom: 8,
   },
-  modalCloseBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  modalActions: {
+  reviewSubtitle: {
+    fontSize: FontSize.md,
+    textAlign: "center",
+    marginBottom: 20,
+    lineHeight: 22,
+  },
+  reviewActions: {
     width: "100%",
     gap: 12,
   },
-  modalPrimaryBtn: {
+  reviewPrimaryBtn: {
     backgroundColor: Colors.accent,
     paddingVertical: 14,
-    borderRadius: 14,
+    borderRadius: BorderRadius.md,
     alignItems: "center",
   },
-  modalPrimaryBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  modalSecondaryBtn: {
+  reviewPrimaryBtnText: {
+    color: Colors.onAccent,
+    fontSize: FontSize.md,
+    fontWeight: "700",
+  },
+  reviewSecondaryBtn: {
     paddingVertical: 14,
-    borderRadius: 14,
+    borderRadius: BorderRadius.md,
     alignItems: "center",
   },
-  modalSecondaryBtnText: { fontSize: 15, fontWeight: "600" },
+  reviewSecondaryBtnText: {
+    fontSize: FontSize.md,
+    fontWeight: "600",
+  },
 });

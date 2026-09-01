@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { TextEntry, getEntries, addEntry, updateEntry, deleteEntry } from "../services/firebase";
+import { TextEntry, getEntries, addEntry, updateEntry, deleteEntry, togglePinEntry } from "../services/firebase";
 
 interface UseEntriesReturn {
   entries: TextEntry[];
@@ -7,6 +7,7 @@ interface UseEntriesReturn {
   createEntry: (headline: string, content: string) => Promise<TextEntry | null>;
   editEntry: (id: string, headline: string, content: string) => Promise<boolean>;
   removeEntry: (id: string) => Promise<boolean>;
+  pinEntry: (id: string) => Promise<boolean>;
   refreshEntries: () => Promise<void>;
 }
 
@@ -69,6 +70,22 @@ export function useEntries(uid: string | null): UseEntriesReturn {
     []
   );
 
+  const pinEntry = useCallback(
+    async (id: string): Promise<boolean> => {
+      const entry = entries.find((e) => e.id === id);
+      if (!entry) return false;
+      const newPinned = !entry.pinned;
+      const success = await togglePinEntry(id, newPinned);
+      if (success) {
+        setEntries((prev) =>
+          prev.map((e) => (e.id === id ? { ...e, pinned: newPinned } : e))
+        );
+      }
+      return success;
+    },
+    [entries]
+  );
+
   const refreshEntries = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -87,6 +104,7 @@ export function useEntries(uid: string | null): UseEntriesReturn {
     createEntry,
     editEntry,
     removeEntry,
+    pinEntry,
     refreshEntries,
   };
 }

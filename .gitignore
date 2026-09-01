@@ -41,3 +41,11 @@ yarn-error.*
 /android
 
 .vercel
+
+# local build helpers / artifacts
+_build.ipa
+_build_ios.js
+_setup_creds.bat
+_setup_creds.js
+_setup_creds_pty.js
+_submit_ios.js

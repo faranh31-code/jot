@@ -1,31 +1,49 @@
 {
   "expo": {
-    "name": "Jot - Notes, Save & Copy Text",
+    "name": "Jot",
     "slug": "jot-notes-save-copy-text",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": false,
     "splash": {
-      "backgroundColor": "#0f0f23"
+      "backgroundColor": "#0A0A1A",
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.faran.app3",
+      "buildNumber": "10",
       "icon": "./assets/ios-app-store-icon.png",
+      "config": {
+        "googleMobileAdsAppId": "ca-app-pub-4386055252112057~7597253176"
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "GADApplicationIdentifier": "ca-app-pub-4386055252112057~7597253176",
-        "NSUserTrackingUsageDescription": "This app uses identifiers to deliver personalized ads."
+        "NSUserTrackingUsageDescription": "Allow this app to use your data to show you relevant ads that support our free app. Your privacy matters to us.",
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLName": "jotapp",
+            "CFBundleURLSchemes": ["jotapp"]
+          }
+        ],
+        "LSApplicationQueriesSchemes": ["jotapp"]
       }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0f0f23"
+        "backgroundColor": "#0A0A1A"
       },
-      "package": "com.faran.app3"
+      "package": "com.faran.app3",
+      "config": {
+        "googleMobileAdsAppId": "ca-app-pub-4386055252112057~2456607131"
+      },
+      "permissions": [
+        "com.google.android.gms.permission.AD_ID"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -34,16 +52,35 @@
     "scheme": "jotapp",
     "plugins": [
       [
+        "expo-tracking-transparency",
+        {
+          "userTrackingPermission": "Allow this app to use your data to show you relevant ads that support our free app. Your privacy matters to us."
+        }
+      ],
+      [
         "react-native-google-mobile-ads",
         {
           "androidAppId": "ca-app-pub-4386055252112057~2456607131",
-          "iosAppId": "ca-app-pub-4386055252112057~7597253176"
+          "iosAppId": "ca-app-pub-4386055252112057~7597253176",
+          "userTrackingUsageDescription": "Allow this app to use your data to show you relevant ads that support our free app. Your privacy matters to us.",
+          "delayAppMeasurementInit": false
+        }
+      ],
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsText": true,
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+            "NSExtensionActivationSupportsWebPageWithMaxCount": 1
+          },
+          "androidIntentFilters": ["text/*"]
         }
       ]
     ],
     "extra": {
       "eas": {
-        "projectId": "e15f395d-c37a-4afd-823b-d73905af3cfc"
+        "projectId": "1cdb784c-5cc5-4cbb-8b16-675c18137f07"
       }
     },
     "owner": "shumaila_saher"

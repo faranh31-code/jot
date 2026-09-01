@@ -1,17 +1,19 @@
 {
   "cli": {
     "version": ">= 16.0.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "local"
   },
   "build": {
-    "production": {
-      "autoIncrement": true
-    }
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "production": {}
   },
   "submit": {
     "production": {
       "ios": {
-        "appleId": "6794609107",
+        "appleId": "faranh31@gmail.com",
         "ascAppId": "6794609107"
       }
     }

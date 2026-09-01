@@ -8,24 +8,25 @@ import {
   Animated,
   Dimensions,
 } from "react-native";
-import { Colors, BorderRadius, Spacing, FontSize } from "../constants/theme";
+import { Ionicons } from "@expo/vector-icons";
+import { Colors, BorderRadius, Spacing, FontSize, FontFamily } from "../constants/theme";
 import { storageGet, storageSet } from "../services/storage";
 
 const { width } = Dimensions.get("window");
 
-const STEPS = [
+const STEPS: { icon: React.ComponentProps<typeof Ionicons>["name"]; title: string; description: string }[] = [
   {
-    icon: "\uD83D\uDCDD",
+    icon: "create-outline",
     title: "Create Entries",
     description: "Tap the + button to create a new text entry. Add a headline and your content.",
   },
   {
-    icon: "\uD83D\uDD0D",
+    icon: "copy-outline",
     title: "Quick Copy",
     description: "Tap any entry to view full details and instantly copy to clipboard.",
   },
   {
-    icon: "\u2601\uFE0F",
+    icon: "cloud-outline",
     title: "Cloud Sync",
     description: "Sign in to sync your entries across all your devices with Firebase.",
   },
@@ -96,7 +97,18 @@ export default function AppGuideModal({ isDark }: AppGuideModalProps) {
             },
           ]}
         >
-          <Text style={styles.stepIcon}>{step.icon}</Text>
+          <View
+            style={[
+              styles.stepIconWrap,
+              { backgroundColor: isDark ? Colors.dark.accentLight : Colors.light.accentLight },
+            ]}
+          >
+            <Ionicons
+              name={step.icon}
+              size={30}
+              color={isDark ? Colors.dark.accentText : Colors.light.accentText}
+            />
+          </View>
           <Text style={[styles.stepTitle, { color: isDark ? Colors.dark.text : Colors.light.text }]}>
             {step.title}
           </Text>
@@ -113,7 +125,11 @@ export default function AppGuideModal({ isDark }: AppGuideModalProps) {
             {STEPS.map((_, i) => (
               <View
                 key={i}
-                style={[styles.dot, i === currentStep && styles.dotActive]}
+                style={[
+                  styles.dot,
+                  { backgroundColor: isDark ? Colors.dark.border : Colors.light.border },
+                  i === currentStep && styles.dotActive,
+                ]}
               />
             ))}
           </View>
@@ -155,13 +171,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
   },
-  stepIcon: {
-    fontSize: 64,
+  stepIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: BorderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: Spacing.lg,
   },
   stepTitle: {
+    fontFamily: FontFamily.display,
     fontSize: FontSize.xxl,
-    fontWeight: "800",
     marginBottom: Spacing.sm,
     textAlign: "center",
   },
@@ -180,7 +200,6 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "rgba(255,255,255,0.2)",
   },
   dotActive: {
     backgroundColor: Colors.accent,
@@ -209,7 +228,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   nextBtnText: {
-    color: "#fff",
+    color: Colors.onAccent,
     fontSize: FontSize.md,
     fontWeight: "700",
   },

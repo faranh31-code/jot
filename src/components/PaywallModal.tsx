@@ -1,240 +1,404 @@
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
+  TouchableOpacity,
+  ScrollView,
   Modal,
-  Pressable,
-  Animated,
-} from "react-native";
-import { Colors, BorderRadius, Spacing, FontSize } from "../constants/theme";
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors, Spacing, FontSize, BorderRadius, Shadow, FontFamily } from '../constants/theme';
+import { trackEvent } from '../services/analytics';
+
+type Plan = 'monthly' | 'annual' | 'lifetime';
 
 interface PaywallModalProps {
   isVisible: boolean;
+  isDark: boolean;
+  trigger?: string;
   onClose: () => void;
-  onSubscribeSuccess: () => void;
+  onPurchase: (plan: Plan) => void;
+  onRestore: () => void;
 }
 
-const FEATURES = [
-  { icon: "\u26A1", text: "100% Ad-Free experience" },
-  { icon: "\uD83D\uDCBE", text: "Unlimited text entries" },
-  { icon: "\uD83D\uDD17", text: "Cloud sync across devices" },
-  { icon: "\uD83D\uDE80", text: "Priority support" },
-] as const;
+const PRO_FEATURES = [
+  { icon: 'infinite-outline' as const, text: 'Unlimited Jots' },
+  { icon: 'ban-outline' as const, text: 'Ad-free experience' },
+  { icon: 'share-social-outline' as const, text: 'Advanced sharing & export' },
+  { icon: 'color-palette-outline' as const, text: 'Premium Jot Card styles' },
+  { icon: 'close-circle-outline' as const, text: 'Remove branding' },
+  { icon: 'flash-outline' as const, text: 'Priority support' },
+];
+
+const PLAN_DETAILS: Record<
+  Plan,
+  { name: string; price: string; period: string; badge?: string; subtext: string; event: 'monthly_selected' | 'annual_selected' | 'lifetime_selected' }
+> = {
+  monthly: {
+    name: 'Monthly',
+    price: '$0.99',
+    period: '/month',
+    subtext: 'Billed monthly, cancel anytime',
+    event: 'monthly_selected',
+  },
+  annual: {
+    name: 'Annual',
+    price: '$7.99',
+    period: '/year',
+    badge: 'BEST VALUE',
+    subtext: "That's just $0.67/month — save 33%",
+    event: 'annual_selected',
+  },
+  lifetime: {
+    name: 'Lifetime',
+    price: '$19.99',
+    period: 'one-time',
+    badge: 'PAY ONCE',
+    subtext: 'Yours forever, no renewals',
+    event: 'lifetime_selected',
+  },
+};
+
+const PLAN_ORDER: Plan[] = ['monthly', 'annual', 'lifetime'];
+
+const CTA_TEXT: Record<Plan, string> = {
+  monthly: 'Start Jot Pro — Monthly',
+  annual: 'Start Jot Pro — Annual',
+  lifetime: 'Unlock Lifetime Access',
+};
 
 export default function PaywallModal({
   isVisible,
+  isDark,
+  trigger,
   onClose,
-  onSubscribeSuccess,
+  onPurchase,
+  onRestore,
 }: PaywallModalProps) {
-  const scaleAnim = useRef(new Animated.Value(0.9)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
+  const theme = isDark ? Colors.dark : Colors.light;
+  const [selectedPlan, setSelectedPlan] = useState<Plan>('annual');
 
   useEffect(() => {
     if (isVisible) {
-      scaleAnim.setValue(0.9);
-      opacityAnim.setValue(0);
-      Animated.parallel([
-        Animated.timing(opacityAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
-        Animated.spring(scaleAnim, { toValue: 1, tension: 50, friction: 7, useNativeDriver: true }),
-      ]).start();
+      trackEvent({ event: 'paywall_viewed', params: { trigger: trigger || 'unknown' } });
     }
-  }, [isVisible]);
+  }, [isVisible, trigger]);
 
-  const handleClose = () => {
-    Animated.parallel([
-      Animated.timing(opacityAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-      Animated.timing(scaleAnim, { toValue: 0.95, duration: 200, useNativeDriver: true }),
-    ]).start(() => onClose());
+  const selectPlan = (plan: Plan) => {
+    setSelectedPlan(plan);
+    trackEvent({ event: PLAN_DETAILS[plan].event });
   };
 
-  const handleRevenueCatPaywall = useCallback(async () => {
-    if (__DEV__) { handleClose(); return; }
-    try {
-      const uiMod = await import("react-native-purchases-ui");
-      const result = await uiMod.default.presentPaywall();
-      switch (result) {
-        case uiMod.PAYWALL_RESULT.PURCHASED:
-        case uiMod.PAYWALL_RESULT.RESTORED:
-          handleClose();
-          onSubscribeSuccess();
-          break;
-        default:
-          break;
-      }
-    } catch {
-      handleClose();
-      onSubscribeSuccess();
-    }
-  }, [onSubscribeSuccess]);
-
-  const handleRestore = useCallback(async () => {
-    try {
-      const purchasesMod = await import("react-native-purchases");
-      await purchasesMod.default.restorePurchases();
-      handleClose();
-      onSubscribeSuccess();
-    } catch (err) {
-      console.warn("[Paywall] Restore not available:", err);
-    }
-  }, [onSubscribeSuccess]);
-
   return (
-    <Modal visible={isVisible} transparent animationType="none" onRequestClose={handleClose}>
-      <Animated.View style={[styles.overlay, { opacity: opacityAnim }]}>
-        <Pressable style={styles.backdrop} onPress={handleClose} />
-        <Animated.View style={[styles.container, { transform: [{ scale: scaleAnim }] }]}>
-          <View style={styles.glowAccent} />
-          <View style={styles.badgeContainer}>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>PRO</Text>
+    <Modal
+      visible={isVisible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <View style={[styles.container, { backgroundColor: theme.bg }]}>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+        >
+          <TouchableOpacity
+            onPress={onClose}
+            style={[styles.closeButton, { backgroundColor: theme.input }]}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+          >
+            <Ionicons name="close" size={20} color={theme.textSecondary} />
+          </TouchableOpacity>
+
+          <View style={styles.heroSection}>
+            <View style={styles.iconContainer}>
+              <View style={styles.iconBackground}>
+                <Ionicons name="diamond" size={40} color={Colors.onAccent} />
+              </View>
             </View>
+
+            <Text style={[styles.title, { color: theme.text }]}>
+              Unlock Jot Pro
+            </Text>
+            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+              Get the full Jot experience with unlimited access to all premium features.
+            </Text>
           </View>
-          <Text style={styles.title}>Go Premium</Text>
-          <Text style={styles.price}>$0.99/month</Text>
-          <View style={styles.featuresContainer}>
-            {FEATURES.map((feature) => (
+
+          <View style={styles.featuresSection}>
+            {PRO_FEATURES.map((feature) => (
               <View key={feature.text} style={styles.featureRow}>
-                <Text style={styles.featureIcon}>{feature.icon}</Text>
-                <Text style={styles.featureText}>{feature.text}</Text>
+                <View style={[styles.featureIconContainer, { backgroundColor: theme.accentLight }]}>
+                  <Ionicons
+                    name={feature.icon}
+                    size={20}
+                    color={theme.accentText}
+                  />
+                </View>
+                <Text style={[styles.featureText, { color: theme.text }]}>
+                  {feature.text}
+                </Text>
+                <Ionicons
+                  name="checkmark-circle"
+                  size={18}
+                  color={Colors.success}
+                />
               </View>
             ))}
           </View>
-          <Pressable style={styles.ctaButton} onPress={handleRevenueCatPaywall}>
-            <Text style={styles.ctaText}>Get Started</Text>
-          </Pressable>
-          <Text style={styles.ctaSubtext}>$0.99/month. Cancel anytime.</Text>
-          <View style={styles.footerLinks}>
-            <Pressable onPress={handleRestore}>
-              <Text style={styles.footerLink}>Restore Purchases</Text>
-            </Pressable>
-            <Text style={styles.footerDot}>{"\u00B7"}</Text>
-            <Pressable onPress={() => {}}>
-              <Text style={styles.footerLink}>Terms & Privacy</Text>
-            </Pressable>
+
+          <View style={styles.plansSection}>
+            {PLAN_ORDER.map((plan) => {
+              const details = PLAN_DETAILS[plan];
+              const isActive = selectedPlan === plan;
+              return (
+                <TouchableOpacity
+                  key={plan}
+                  onPress={() => selectPlan(plan)}
+                  activeOpacity={0.7}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: isActive }}
+                  style={[
+                    styles.planRow,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: isActive ? theme.accentText : theme.border,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.radioOuter,
+                      { borderColor: isActive ? theme.accentText : theme.border },
+                    ]}
+                  >
+                    {isActive && <View style={[styles.radioInner, { backgroundColor: theme.accentText }]} />}
+                  </View>
+
+                  <View style={styles.planInfo}>
+                    <View style={styles.planNameRow}>
+                      <Text style={[styles.planName, { color: theme.text }]}>{details.name}</Text>
+                      {details.badge && (
+                        <View style={[styles.planBadge, { backgroundColor: theme.accentLight }]}>
+                          <Text style={[styles.planBadgeText, { color: theme.accentText }]}>
+                            {details.badge}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.planSubtext, { color: theme.textSecondary }]}>
+                      {details.subtext}
+                    </Text>
+                  </View>
+
+                  <View style={styles.planPriceBlock}>
+                    <Text style={[styles.planPrice, { color: theme.text }]}>{details.price}</Text>
+                    <Text style={[styles.planPeriod, { color: theme.textMuted }]}>{details.period}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-        </Animated.View>
-      </Animated.View>
+        </ScrollView>
+
+        <View style={[styles.bottomSection, { borderTopColor: theme.border, backgroundColor: theme.bg }]}>
+          <TouchableOpacity
+            style={styles.ctaButton}
+            onPress={() => onPurchase(selectedPlan)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.ctaButtonText}>{CTA_TEXT[selectedPlan]}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={onRestore}
+            activeOpacity={0.7}
+            style={styles.restoreButton}
+          >
+            <Text style={[styles.restoreText, { color: theme.textSecondary }]}>
+              Restore Purchase
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={onClose}
+            activeOpacity={0.7}
+            style={styles.dismissButton}
+          >
+            <Text style={[styles.dismissText, { color: theme.textMuted }]}>
+              Maybe Later
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: Spacing.lg,
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-  },
   container: {
-    width: "100%",
-    maxWidth: 380,
-    backgroundColor: Colors.dark.card,
+    flex: 1,
+  },
+  scroll: {
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.lg,
+  },
+  closeButton: {
+    alignSelf: 'flex-end',
+    marginRight: Spacing.md,
+    width: 32,
+    height: 32,
+    borderRadius: BorderRadius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroSection: {
+    alignItems: 'center',
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.lg,
+  },
+  iconContainer: {
+    marginBottom: Spacing.lg,
+  },
+  iconBackground: {
+    width: 80,
+    height: 80,
     borderRadius: BorderRadius.xxl,
-    padding: Spacing.xl,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: Colors.dark.border,
-    overflow: "hidden",
-  },
-  glowAccent: {
-    position: "absolute",
-    top: -60,
-    right: -60,
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: "rgba(108, 99, 255, 0.15)",
-  },
-  badgeContainer: {
-    marginBottom: Spacing.md,
-    zIndex: 1,
-  },
-  badge: {
     backgroundColor: Colors.accent,
-    borderRadius: BorderRadius.xl,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-  },
-  badgeText: {
-    color: "#fff",
-    fontSize: FontSize.sm,
-    fontWeight: "800",
-    letterSpacing: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadow.lg,
   },
   title: {
+    fontFamily: FontFamily.display,
     fontSize: FontSize.hero,
-    fontWeight: "800",
-    color: "#fff",
-    marginBottom: Spacing.xs,
-    zIndex: 1,
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
   },
-  price: {
+  subtitle: {
     fontSize: FontSize.md,
-    color: Colors.dark.textSecondary,
-    marginBottom: Spacing.lg,
-    zIndex: 1,
+    textAlign: 'center',
+    lineHeight: 22,
+    paddingHorizontal: Spacing.md,
   },
-  featuresContainer: {
-    width: "100%",
+  featuresSection: {
+    paddingHorizontal: Spacing.xl,
     marginBottom: Spacing.lg,
-    zIndex: 1,
   },
   featureRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: Spacing.md,
     gap: Spacing.md,
   },
-  featureIcon: {
-    fontSize: 18,
-    width: 28,
-    textAlign: "center",
+  featureIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   featureText: {
     flex: 1,
-    color: "#ddd",
     fontSize: FontSize.md,
-    fontWeight: "500",
-    lineHeight: 20,
+    fontWeight: '500',
+  },
+  plansSection: {
+    paddingHorizontal: Spacing.xl,
+    gap: Spacing.sm,
+  },
+  planRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 2,
+    gap: Spacing.md,
+  },
+  radioOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: BorderRadius.full,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioInner: {
+    width: 12,
+    height: 12,
+    borderRadius: BorderRadius.full,
+  },
+  planInfo: {
+    flex: 1,
+  },
+  planNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: 2,
+  },
+  planName: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+  },
+  planBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+  },
+  planBadgeText: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  planSubtext: {
+    fontSize: FontSize.xs,
+  },
+  planPriceBlock: {
+    alignItems: 'flex-end',
+  },
+  planPrice: {
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+  },
+  planPeriod: {
+    fontSize: FontSize.xs,
+  },
+  bottomSection: {
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xxl,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   ctaButton: {
-    width: "100%",
     backgroundColor: Colors.accent,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.md,
     paddingVertical: Spacing.md,
-    alignItems: "center",
-    marginBottom: Spacing.xs,
-    zIndex: 1,
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+    ...Shadow.md,
   },
-  ctaText: {
-    color: "#fff",
+  ctaButtonText: {
+    color: Colors.onAccent,
     fontSize: FontSize.lg,
-    fontWeight: "700",
+    fontWeight: '700',
   },
-  ctaSubtext: {
-    color: Colors.dark.textMuted,
-    fontSize: FontSize.xs,
-    textAlign: "center",
-    marginBottom: Spacing.lg,
-    zIndex: 1,
+  restoreButton: {
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
   },
-  footerLinks: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-    zIndex: 1,
+  restoreText: {
+    fontSize: FontSize.sm,
+    textDecorationLine: 'underline',
   },
-  footerLink: {
-    color: "#555",
-    fontSize: FontSize.xs,
+  dismissButton: {
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
   },
-  footerDot: {
-    color: "#444",
-    fontSize: 16,
+  dismissText: {
+    fontSize: FontSize.sm,
   },
 });

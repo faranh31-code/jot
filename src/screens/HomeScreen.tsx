@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,334 +7,555 @@ import {
   Pressable,
   ActivityIndicator,
   Alert,
-  Platform,
   RefreshControl,
   TextInput,
+  ScrollView,
+  SafeAreaView,
+  Animated,
 } from "react-native";
-import { Colors, BorderRadius, Spacing, FontSize } from "../constants/theme";
-import EntryCard from "../components/EntryCard";
-import EntryDetailModal from "../components/EntryDetailModal";
-import CreateEntryModal from "../components/CreateEntryModal";
-import EmptyState from "../components/EmptyState";
-import { useEntries } from "../hooks/useEntries";
+import { Ionicons } from "@expo/vector-icons";
+import { Colors, BorderRadius, Spacing, FontSize, Shadow, FontFamily } from "../constants/theme";
+import { useJot } from "../hooks/useJot";
 import { useShare } from "../hooks/useShare";
+import { useInterstitialAd } from "../hooks/useInterstitialAd";
+import { useRewardedAd } from "../hooks/useRewardedAd";
+import { Jot, JotCategory, CATEGORIES, FREE_JOT_LIMIT } from "../types";
+import { isPro as checkIsPro, canCreateJot } from "../services/subscription";
+import JotCard from "../components/JotCard";
+import JotEditor from "../components/JotEditor";
+import ShareCard from "../components/ShareCard";
+import AdInlineBanner from "../components/AdInlineBanner";
 
-const FREE_ENTRY_LIMIT = 10;
-
-type SortOption = "newest" | "oldest" | "az" | "za";
+type SortOption = "newest" | "oldest" | "az" | "za" | "recently_updated" | "pinned_first";
 
 const SORT_OPTIONS: { key: SortOption; label: string }[] = [
   { key: "newest", label: "Newest first" },
   { key: "oldest", label: "Oldest first" },
   { key: "az", label: "A \u2192 Z" },
   { key: "za", label: "Z \u2192 A" },
+  { key: "recently_updated", label: "Recently updated" },
+  { key: "pinned_first", label: "Pinned first" },
+];
+
+const CATEGORY_FILTERS: { key: JotCategory | null; label: string }[] = [
+  { key: null, label: "All" },
+  ...CATEGORIES.map((c) => ({ key: c.key as JotCategory, label: c.label })),
 ];
 
 interface HomeScreenProps {
   isDark: boolean;
   uid: string | null;
-  isPro: boolean;
+  isAnonymous: boolean;
   onRequireAuth: () => void;
-  onRequirePro?: () => void;
-  onCopyFromPreview?: () => void;
+  onOpenSettings: () => void;
+  onOpenPaywall: (trigger?: string) => void;
+  sharedText?: string | null;
+  onSharedTextConsumed?: () => void;
 }
 
-export default function HomeScreen({ isDark, uid, isPro, onRequireAuth, onRequirePro, onCopyFromPreview }: HomeScreenProps) {
-  const { entries, isLoading, createEntry, editEntry, removeEntry, refreshEntries } = useEntries(uid);
-  const { copyToClipboard } = useShare();
+const EXAMPLE_JOTS: { headline: string; body: string; category: JotCategory }[] = [
+  { headline: "Wi-Fi password", body: "Network: Home_5G\nPassword: MyP@ssw0rd", category: "personal" },
+  { headline: "Business idea", body: "App that sends you a reminder every time you think of something but forgot to write it down", category: "ideas" },
+  { headline: "Things to buy", body: "- Coffee beans\n- Notebook\n- USB-C cable\n- New headphones", category: "shopping" },
+  { headline: "Quote I want to remember", body: "The best time to plant a tree was 20 years ago. The second best time is now.", category: "quotes" },
+];
+
+function getRelativeTime(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (seconds < 60) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days}d ago`;
+  const d = new Date(timestamp);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+export default function HomeScreen({
+  isDark,
+  uid,
+  isAnonymous,
+  onRequireAuth,
+  onOpenSettings,
+  onOpenPaywall,
+  sharedText,
+  onSharedTextConsumed,
+}: HomeScreenProps) {
+  const {
+    filteredJots,
+    isLoading,
+    createJot,
+    editJot,
+    deleteJot,
+    togglePin,
+    refreshJots,
+    searchQuery,
+    setSearchQuery,
+    sortOption,
+    setSortOption,
+    selectedCategory,
+    setSelectedCategory,
+    jotCount,
+  } = useJot();
+
+  const { copyToClipboard, shareText, clipboardCheck } = useShare();
+  const { showNow: showInterstitialNow } = useInterstitialAd();
+  const { isReady: isRewardedReady, show: showRewardedAd } = useRewardedAd();
+
   const [refreshing, setRefreshing] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortOption, setSortOption] = useState<SortOption>("newest");
   const [sortMenuVisible, setSortMenuVisible] = useState(false);
+  const [editorVisible, setEditorVisible] = useState(false);
+  const [editingJot, setEditingJot] = useState<Jot | null>(null);
+  const [clipboardText, setClipboardText] = useState<string | null>(null);
+  const [shareJot, setShareJot] = useState<Jot | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastType, setToastType] = useState<"saved" | "deleted" | "copied">("saved");
+  const [undoDelete, setUndoDelete] = useState<{ jot: Jot; timeout: ReturnType<typeof setTimeout> } | null>(null);
+  const [initialSharedBody, setInitialSharedBody] = useState<string | null>(null);
+  const [rewardedBonusRemaining, setRewardedBonusRemaining] = useState(0);
 
-  const [selectedEntry, setSelectedEntry] = useState<{
-    id: string;
-    headline: string;
-    content: string;
-  } | null>(null);
-  const [detailVisible, setDetailVisible] = useState(false);
-  const [createVisible, setCreateVisible] = useState(false);
-  const [editData, setEditData] = useState<{
-    id: string;
-    headline: string;
-    content: string;
-  } | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [savedToast, setSavedToast] = useState(false);
-  const [deleteToast, setDeleteToast] = useState(false);
-  const [limitToast, setLimitToast] = useState(false);
+  const toastAnim = useRef(new Animated.Value(0)).current;
+  const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const filteredAndSorted = useMemo(() => {
-    let result = entries;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (e) =>
-          e.headline.toLowerCase().includes(q) ||
-          e.content.toLowerCase().includes(q)
-      );
+  useEffect(() => {
+    if (!uid || isAnonymous) return;
+    clipboardCheck().then((text) => {
+      if (text && text.trim().length > 10) {
+        setClipboardText(text.trim());
+      }
+    });
+  }, [uid, isAnonymous]);
+
+  useEffect(() => {
+    if (sharedText && sharedText.trim().length > 0) {
+      if (!uid || isAnonymous) {
+        onRequireAuth();
+        onSharedTextConsumed?.();
+        return;
+      }
+      if (!canCreateJot(jotCount)) {
+        onOpenPaywall("limit");
+        onSharedTextConsumed?.();
+        return;
+      }
+      setInitialSharedBody(sharedText.trim());
+      setEditingJot(null);
+      setEditorVisible(true);
+      onSharedTextConsumed?.();
     }
-    switch (sortOption) {
-      case "newest":
-        result = [...result].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-        break;
-      case "oldest":
-        result = [...result].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-        break;
-      case "az":
-        result = [...result].sort((a, b) => a.headline.localeCompare(b.headline));
-        break;
-      case "za":
-        result = [...result].sort((a, b) => b.headline.localeCompare(a.headline));
-        break;
+  }, [sharedText]);
+
+  useEffect(() => {
+    if (toastMessage) {
+      Animated.sequence([
+        Animated.timing(toastAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+        Animated.delay(1800),
+        Animated.timing(toastAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+      ]).start(() => setToastMessage(null));
     }
-    return result;
-  }, [entries, searchQuery, sortOption]);
+  }, [toastMessage, toastAnim]);
+
+  const showToast = useCallback((msg: string, type: "saved" | "deleted" | "copied") => {
+    if (toastTimeout.current) clearTimeout(toastTimeout.current);
+    setToastType(type);
+    setToastMessage(msg);
+  }, []);
+
+  const pinnedJots = useMemo(() => filteredJots.filter((j) => j.isPinned), [filteredJots]);
+  const unpinnedJots = useMemo(() => filteredJots.filter((j) => !j.isPinned), [filteredJots]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refreshEntries();
+    await refreshJots();
     setRefreshing(false);
-  }, [refreshEntries]);
+  }, [refreshJots]);
 
-  const confirmDelete = useCallback(
-    (id: string) => {
-      if (Platform.OS === "web") {
-        if (window.confirm("Are you sure you want to delete this entry?")) {
-          removeEntry(id);
-          setDeleteToast(true);
-          setTimeout(() => setDeleteToast(false), 2500);
-        }
+  const handleCreateJot = useCallback(() => {
+    if (!uid || isAnonymous) {
+      onRequireAuth();
+      return;
+    }
+    if (!canCreateJot(jotCount) && rewardedBonusRemaining <= 0) {
+      Alert.alert(
+        "Limit Reached",
+        `You've reached the ${FREE_JOT_LIMIT} Jot limit. Upgrade to Pro for unlimited, or watch a short ad to save one more.`,
+        [
+          { text: "Maybe Later", style: "cancel" },
+          { text: "Upgrade to Pro", onPress: () => onOpenPaywall("limit") },
+          ...(isRewardedReady
+            ? [
+                {
+                  text: "Watch Ad",
+                  onPress: () => {
+                    showRewardedAd({
+                      onEarned: () => {
+                        setRewardedBonusRemaining((prev) => prev + 1);
+                        setEditingJot(null);
+                        setEditorVisible(true);
+                      },
+                    });
+                  },
+                },
+              ]
+            : []),
+        ]
+      );
+      return;
+    }
+    setEditingJot(null);
+    setEditorVisible(true);
+  }, [uid, isAnonymous, jotCount, rewardedBonusRemaining, isRewardedReady, onRequireAuth, onOpenPaywall, showRewardedAd]);
+
+  const handleEditJot = useCallback(
+    (jot: Jot) => {
+      if (!uid || isAnonymous) {
+        onRequireAuth();
         return;
       }
-      Alert.alert("Delete Entry", "Are you sure you want to delete this entry?", [
+      setEditingJot(jot);
+      setEditorVisible(true);
+    },
+    [uid, isAnonymous, onRequireAuth]
+  );
+
+  const handleEditorSave = useCallback(
+    async (headline: string, body: string, tags: string[], category: JotCategory) => {
+      if (!uid || isAnonymous) {
+        onRequireAuth();
+        return;
+      }
+      if (editingJot) {
+        await editJot(editingJot.id, { headline, body, tags, category });
+        showToast("Saved", "saved");
+      } else {
+        if (!canCreateJot(jotCount) && rewardedBonusRemaining <= 0) {
+          onOpenPaywall("limit");
+          return;
+        }
+        if (!canCreateJot(jotCount) && rewardedBonusRemaining > 0) {
+          setRewardedBonusRemaining((prev) => prev - 1);
+        }
+        await createJot(body, { headline, tags, category });
+        showToast("Saved", "saved");
+      }
+      setEditorVisible(false);
+      setEditingJot(null);
+      setInitialSharedBody(null);
+    },
+    [
+      editingJot, uid, isAnonymous, jotCount, rewardedBonusRemaining, onRequireAuth, onOpenPaywall,
+      editJot, createJot, showToast,
+    ]
+  );
+
+  const handleCopy = useCallback(
+    async (jot: Jot) => {
+      const text = jot.headline ? `${jot.headline}\n\n${jot.body}` : jot.body;
+      const success = await copyToClipboard(text);
+      if (success) showToast("Copied", "copied");
+    },
+    [copyToClipboard, showToast]
+  );
+
+  const handleShare = useCallback((jot: Jot) => {
+    setShareJot(jot);
+  }, []);
+
+  const handleDelete = useCallback(
+    (jot: Jot) => {
+      if (!uid || isAnonymous) {
+        onRequireAuth();
+        return;
+      }
+      Alert.alert("Delete Jot", `Delete "${jot.headline || "Untitled"}"?`, [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            await removeEntry(id);
-            setDeleteToast(true);
-            setTimeout(() => setDeleteToast(false), 2500);
+            await deleteJot(jot.id);
+            showToast("Deleted", "deleted");
+            const timeout = setTimeout(() => setUndoDelete(null), 5000);
+            setUndoDelete({ jot, timeout });
+            if (!checkIsPro()) {
+              setTimeout(() => showInterstitialNow(), 500);
+            }
           },
         },
       ]);
     },
-    [removeEntry]
+    [uid, isAnonymous, deleteJot, showToast, onRequireAuth]
   );
 
-  const handleEntryPress = useCallback(
-    (entry: { id: string; headline: string; content: string }) => {
-      setSelectedEntry(entry);
-      setDetailVisible(true);
+  const handleUndoDelete = useCallback(async () => {
+    if (!undoDelete) return;
+    clearTimeout(undoDelete.timeout);
+    await createJot(undoDelete.jot.body, {
+      headline: undoDelete.jot.headline,
+      tags: undoDelete.jot.tags,
+      category: undoDelete.jot.category,
+    });
+    setUndoDelete(null);
+    showToast("Restored", "saved");
+  }, [undoDelete, createJot, showToast]);
+
+  const handlePin = useCallback(
+    async (jot: Jot) => {
+      await togglePin(jot.id);
     },
-    []
+    [togglePin]
   );
 
-  const handleEdit = useCallback(
-    (id: string, headline: string, content: string) => {
-      if (!uid) {
-        onRequireAuth();
-        return;
-      }
-      setDetailVisible(false);
-      setEditData({ id, headline, content });
-      setTimeout(() => setCreateVisible(true), 300);
-    },
-    [uid, onRequireAuth]
-  );
-
-  const handleDelete = useCallback(
-    async (id: string) => {
-      if (!uid) {
-        onRequireAuth();
-        return;
-      }
-      await removeEntry(id);
-    },
-    [removeEntry, uid, onRequireAuth]
-  );
-
-  const handleCopy = useCallback(
-    async (text: string) => {
-      const success = await copyToClipboard(text);
-      if (success) {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-        if (onCopyFromPreview) onCopyFromPreview();
-      }
-    },
-    [copyToClipboard, onCopyFromPreview]
-  );
-
-  const handleSave = useCallback(
-    async (headline: string, content: string) => {
-      if (!uid) {
-        onRequireAuth();
-        return;
-      }
-      if (!isPro && entries.length >= FREE_ENTRY_LIMIT) {
-        setLimitToast(true);
-        setTimeout(() => setLimitToast(false), 3000);
-        return;
-      }
-      await createEntry(headline, content);
-      setSavedToast(true);
-      setTimeout(() => setSavedToast(false), 2500);
-    },
-    [createEntry, uid, isPro, entries.length, onRequireAuth]
-  );
-
-  const handleEditSave = useCallback(
-    async (id: string, headline: string, content: string) => {
-      if (!uid) {
-        onRequireAuth();
-        return;
-      }
-      await editEntry(id, headline, content);
-      setEditData(null);
-      setSavedToast(true);
-      setTimeout(() => setSavedToast(false), 2500);
-    },
-    [editEntry, uid, onRequireAuth]
-  );
-
-  const handleCreatePress = useCallback(() => {
-    if (!uid) {
+  const handlePasteFromClipboard = useCallback(() => {
+    if (!uid || isAnonymous) {
       onRequireAuth();
       return;
     }
-    if (!isPro && entries.length >= FREE_ENTRY_LIMIT) {
-      if (onRequirePro) onRequirePro();
-      return;
+    if (!clipboardText) return;
+    setEditorVisible(true);
+    setEditingJot(null);
+    setTimeout(() => {
+      setClipboardText(null);
+    }, 500);
+  }, [clipboardText, uid, isAnonymous, onRequireAuth]);
+
+  const adListData = useMemo(() => {
+    if (checkIsPro() || unpinnedJots.length === 0) return [];
+    const items: { type: "jot" | "ad"; jot?: Jot; adId?: string }[] = [];
+    let adCounter = 0;
+    unpinnedJots.forEach((jot, index) => {
+      items.push({ type: "jot", jot });
+      if ((index + 1) % 3 === 0 && index < unpinnedJots.length - 1) {
+        adCounter++;
+        items.push({ type: "ad", adId: `ad-${adCounter}` });
+      }
+    });
+    return items;
+  }, [unpinnedJots]);
+
+  const limitApproaching = jotCount > 40 && jotCount < FREE_JOT_LIMIT && !checkIsPro();
+
+  const listHeader = useMemo(() => (
+    <View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.categoryScroll}
+        style={styles.categoryRow}
+      >
+        {CATEGORY_FILTERS.map((cat) => {
+          const isActive = selectedCategory === cat.key;
+          return (
+            <Pressable
+              key={cat.key ?? "all"}
+              style={[
+                styles.categoryPill,
+                {
+                  backgroundColor: isActive ? Colors.accent : isDark ? Colors.dark.card : Colors.light.input,
+                  borderColor: isActive ? Colors.accent : isDark ? Colors.dark.border : Colors.light.border,
+                },
+              ]}
+              onPress={() => setSelectedCategory(cat.key)}
+            >
+              <Text
+                style={[
+                  styles.categoryPillText,
+                  { color: isActive ? Colors.onAccent : isDark ? Colors.dark.textSecondary : Colors.light.textSecondary },
+                ]}
+              >
+                {cat.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      {clipboardText && (
+        <View style={[styles.clipboardCard, { backgroundColor: isDark ? Colors.dark.card : Colors.light.input, borderColor: isDark ? Colors.dark.border : Colors.light.border }]}>
+          <Ionicons name="clipboard-outline" size={18} color={isDark ? Colors.dark.accentText : Colors.light.accentText} />
+          <Text style={[styles.clipboardText, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]} numberOfLines={1}>
+            Paste from clipboard
+          </Text>
+          <Pressable onPress={handlePasteFromClipboard} style={styles.clipboardBtn}>
+            <Text style={styles.clipboardBtnText}>Paste</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {pinnedJots.length > 0 && (
+        <View>
+          <Text style={[styles.sectionLabel, { color: isDark ? Colors.dark.textMuted : Colors.light.textMuted }]}>
+            Pinned
+          </Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.pinnedScroll}
+          >
+            {pinnedJots.map((jot) => (
+              <Pressable
+                key={jot.id}
+                style={[
+                  styles.pinnedCard,
+                  { backgroundColor: isDark ? Colors.dark.card : Colors.light.card, borderColor: isDark ? Colors.dark.border : Colors.light.border },
+                ]}
+                onPress={() => handleEditJot(jot)}
+                onLongPress={() => handleDelete(jot)}
+              >
+                <Text style={[styles.pinnedHeadline, { color: isDark ? Colors.dark.text : Colors.light.text }]} numberOfLines={2}>
+                  {jot.headline || "Untitled"}
+                </Text>
+                <Text style={[styles.pinnedBody, { color: isDark ? Colors.dark.textMuted : Colors.light.textMuted }]} numberOfLines={2}>
+                  {jot.body}
+                </Text>
+                <Text style={[styles.pinnedTime, { color: isDark ? Colors.dark.accentText : Colors.light.accentText }]}>{getRelativeTime(jot.updatedAt || jot.createdAt)}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {sortMenuVisible && (
+        <View style={styles.sortBar}>
+          {SORT_OPTIONS.map((opt) => (
+            <Pressable
+              key={opt.key}
+              style={[
+                styles.sortPill,
+                {
+                  backgroundColor: sortOption === opt.key ? Colors.accent : isDark ? Colors.dark.card : Colors.light.input,
+                  borderColor: sortOption === opt.key ? Colors.accent : isDark ? Colors.dark.border : Colors.light.border,
+                },
+              ]}
+              onPress={() => {
+                setSortOption(opt.key);
+                setSortMenuVisible(false);
+              }}
+            >
+              <Text
+                style={[
+                  styles.sortPillText,
+                  { color: sortOption === opt.key ? Colors.onAccent : isDark ? Colors.dark.textSecondary : Colors.light.textSecondary },
+                ]}
+              >
+                {opt.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </View>
+  ), [selectedCategory, clipboardText, pinnedJots, sortMenuVisible, sortOption, isDark, handlePasteFromClipboard, handleEditJot, handleDelete, setSelectedCategory, setSortOption]);
+
+  const emptyState = useMemo(() => {
+    if (searchQuery) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="search-outline" size={48} color={isDark ? Colors.dark.textMuted : Colors.light.textMuted} />
+          <Text style={[styles.emptyTitle, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]}>
+            No results for "{searchQuery}"
+          </Text>
+        </View>
+      );
     }
-    setEditData(null);
-    setCreateVisible(true);
-  }, [uid, isPro, entries.length, onRequireAuth, onRequirePro]);
+    return (
+      <View style={styles.emptyContainer}>
+        <Ionicons name="document-text-outline" size={48} color={isDark ? Colors.dark.textMuted : Colors.light.textMuted} />
+        <Text style={[styles.emptyTitle, { color: isDark ? Colors.dark.text : Colors.light.text }]}>
+          Your Jots will appear here
+        </Text>
+        {EXAMPLE_JOTS.map((ex, i) => (
+          <View
+            key={i}
+            style={[styles.exampleCard, { backgroundColor: isDark ? Colors.dark.card : Colors.light.card, borderColor: isDark ? Colors.dark.border : Colors.light.border }]}
+          >
+            <Text style={[styles.exampleHeadline, { color: isDark ? Colors.dark.text : Colors.light.text }]}>{ex.headline}</Text>
+            <Text style={[styles.exampleBody, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]} numberOfLines={2}>{ex.body}</Text>
+          </View>
+        ))}
+      </View>
+    );
+  }, [searchQuery, isDark]);
 
   if (isLoading) {
     return (
-      <View
-        style={[
-          styles.loadingContainer,
-          { backgroundColor: isDark ? Colors.dark.bg : Colors.light.bg },
-        ]}
-      >
+      <View style={[styles.loadingContainer, { backgroundColor: isDark ? Colors.dark.bg : Colors.light.bg }]}>
         <ActivityIndicator size="large" color={Colors.accent} />
       </View>
     );
   }
 
-  const renderHeader = () => {
-    if (entries.length === 0) return null;
-    return (
-      <View style={styles.toolbarContainer}>
-        <View style={[styles.searchRow, { backgroundColor: isDark ? Colors.dark.card : "#f0f0f0", borderColor: isDark ? Colors.dark.border : Colors.light.border }]}>
-          <Text style={styles.searchIcon}>{"\uD83D\uDD0D"}</Text>
+  return (
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: isDark ? Colors.dark.bg : Colors.light.bg }]}>
+      <View style={[styles.container, { backgroundColor: isDark ? Colors.dark.bg : Colors.light.bg }]}>
+        <View style={[styles.header, { borderBottomColor: isDark ? Colors.dark.border : Colors.light.border }]}>
+          <Text style={[styles.logo, { color: isDark ? Colors.dark.text : Colors.light.text }]}>Jot</Text>
+          <View style={styles.headerActions}>
+            <Pressable onPress={onOpenSettings} style={styles.headerBtn}>
+              <Ionicons name="settings-outline" size={22} color={isDark ? Colors.dark.textSecondary : Colors.light.textSecondary} />
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={[styles.searchRow, { backgroundColor: isDark ? Colors.dark.card : Colors.light.input, borderColor: isDark ? Colors.dark.border : Colors.light.border }]}>
+          <Ionicons name="search" size={16} color={isDark ? Colors.dark.textMuted : Colors.light.textMuted} />
           <TextInput
             style={[styles.searchInput, { color: isDark ? Colors.dark.text : Colors.light.text }]}
-            placeholder="Search entries..."
+            placeholder="Search jots..."
             placeholderTextColor={isDark ? Colors.dark.textMuted : Colors.light.textMuted}
             value={searchQuery}
             onChangeText={setSearchQuery}
             returnKeyType="search"
+            blurOnSubmit={false}
           />
           {searchQuery.length > 0 && (
-            <Pressable onPress={() => setSearchQuery("")} hitSlop={6}>
-              <Text style={[styles.clearSearch, { color: isDark ? Colors.dark.textMuted : Colors.light.textMuted }]}>✕</Text>
+            <Pressable onPress={() => setSearchQuery("")} hitSlop={8}>
+              <Ionicons name="close-circle" size={18} color={isDark ? Colors.dark.textMuted : Colors.light.textMuted} />
             </Pressable>
           )}
-        </View>
-
-        <View style={styles.sortRow}>
           <Pressable
-            style={[
-              styles.sortToggle,
-              {
-                backgroundColor: isDark ? Colors.dark.card : "#f0f0f0",
-                borderColor: isDark ? Colors.dark.border : Colors.light.border,
-              },
-            ]}
             onPress={() => setSortMenuVisible(!sortMenuVisible)}
+            hitSlop={8}
+            style={styles.sortToggleBtn}
           >
-            <Text style={[styles.sortToggleText, { color: isDark ? Colors.dark.text : Colors.light.text }]}>
-              {"\u21C5"} Sort
-            </Text>
+            <Ionicons name="swap-vertical" size={16} color={isDark ? Colors.dark.textSecondary : Colors.light.textSecondary} />
           </Pressable>
-          {sortMenuVisible && (
-            <View style={[styles.sortMenu, { backgroundColor: isDark ? Colors.dark.card : "#fff", borderColor: isDark ? Colors.dark.border : Colors.light.border }]}>
-              {SORT_OPTIONS.map((opt) => (
-                <Pressable
-                  key={opt.key}
-                  style={[
-                    styles.sortMenuItem,
-                    sortOption === opt.key && { backgroundColor: Colors.accentLight },
-                  ]}
-                  onPress={() => {
-                    setSortOption(opt.key);
-                    setSortMenuVisible(false);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.sortMenuText,
-                      {
-                        color: sortOption === opt.key ? Colors.accent : isDark ? Colors.dark.text : Colors.light.text,
-                        fontWeight: sortOption === opt.key ? "700" : "500",
-                      },
-                    ]}
-                  >
-                    {opt.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
         </View>
-      </View>
-    );
-  };
 
-  return (
-    <View style={[styles.container, { backgroundColor: isDark ? Colors.dark.bg : Colors.light.bg }]}>
-      {entries.length === 0 && !!uid ? (
-        <EmptyState isDark={isDark} />
-      ) : entries.length === 0 && !uid ? (
-        <View style={styles.welcomeContainer}>
-          <Text style={styles.welcomeIcon}>{"\uD83D\uDCDD"}</Text>
-          <Text style={[styles.welcomeTitle, { color: isDark ? Colors.dark.text : Colors.light.text }]}>
-            Save anything, anytime
-          </Text>
-          <Text style={[styles.welcomeSubtitle, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]}>
-            Create your first entry by tapping the + button below
-          </Text>
-        </View>
-      ) : (
         <FlatList
-          data={filteredAndSorted}
-          keyExtractor={(item) => item.id}
-          ListHeaderComponent={renderHeader}
-          ListEmptyComponent={
-            searchQuery ? (
-              <View style={styles.emptySearchContainer}>
-                <Text style={[styles.emptySearchText, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]}>
-                  No entries match "{searchQuery}"
-                </Text>
-              </View>
-            ) : null
-          }
-          renderItem={({ item }) => (
-            <EntryCard
-              headline={item.headline}
-              content={item.content}
-              createdAt={item.createdAt}
-              isDark={isDark}
-              onPress={() => handleEntryPress(item)}
-              onDelete={() => confirmDelete(item.id)}
-            />
-          )}
+          data={adListData}
+          keyExtractor={(item) => {
+            if (item.type === "ad") return item.adId!;
+            return item.jot!.id;
+          }}
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={emptyState}
+          renderItem={({ item }) => {
+            if (item.type === "ad") {
+              return <AdInlineBanner isDark={isDark} />;
+            }
+            const jot = item.jot!;
+            return (
+              <JotCard
+                jot={jot}
+                isDark={isDark}
+                onPress={() => handleEditJot(jot)}
+                onCopy={() => handleCopy(jot)}
+                onShare={() => handleShare(jot)}
+                onPin={() => handlePin(jot)}
+                onEdit={() => handleEditJot(jot)}
+                onDelete={() => handleDelete(jot)}
+              />
+            );
+          }}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -344,64 +565,87 @@ export default function HomeScreen({ isDark, uid, isPro, onRequireAuth, onRequir
             />
           }
         />
-      )}
 
-      <Pressable style={styles.fab} onPress={handleCreatePress}>
-        <Text style={styles.fabText}>+</Text>
-      </Pressable>
+        {limitApproaching && (
+          <Text style={[styles.limitText, { color: isDark ? Colors.dark.textMuted : Colors.light.textMuted }]}>
+            {jotCount} of {FREE_JOT_LIMIT} Jots
+          </Text>
+        )}
 
-      <EntryDetailModal
-        isVisible={detailVisible}
-        headline={selectedEntry?.headline || ""}
-        content={selectedEntry?.content || ""}
-        entryId={selectedEntry?.id || ""}
-        isDark={isDark}
-        onClose={() => setDetailVisible(false)}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-        onCopy={handleCopy}
-      />
+        <Pressable style={styles.fab} onPress={handleCreateJot}>
+          <Ionicons name="add" size={28} color={Colors.onAccent} />
+        </Pressable>
 
-      <CreateEntryModal
-        isVisible={createVisible}
-        isDark={isDark}
-        editData={editData}
-        onClose={() => {
-          setCreateVisible(false);
-          setEditData(null);
-        }}
-        onSave={handleSave}
-        onEditSave={handleEditSave}
-      />
+        <JotEditor
+          isVisible={editorVisible}
+          isDark={isDark}
+          isPro={checkIsPro()}
+          onOpenPaywall={onOpenPaywall}
+          editJot={editingJot}
+          initialText={!editingJot ? initialSharedBody ?? clipboardText ?? undefined : undefined}
+          onSave={handleEditorSave}
+          onClose={() => {
+            setEditorVisible(false);
+            setEditingJot(null);
+            setInitialSharedBody(null);
+          }}
+        />
 
-      {copied && (
-        <View style={styles.toast}>
-          <Text style={styles.toastText}>{"\u2714"} Content copied to clipboard!</Text>
-        </View>
-      )}
+        {shareJot && (
+          <ShareCard
+            jot={shareJot}
+            isDark={isDark}
+            isPro={checkIsPro()}
+            onOpenPaywall={onOpenPaywall}
+            onShareText={async () => {
+              const text = shareJot.headline ? `${shareJot.headline}\n\n${shareJot.body}` : shareJot.body;
+              await shareText(text, shareJot.headline || "Shared from Jot");
+              setShareJot(null);
+            }}
+            onShareImage={async () => {
+              setShareJot(null);
+            }}
+            onCopy={async () => {
+              await handleCopy(shareJot);
+              setShareJot(null);
+            }}
+            onClose={() => setShareJot(null)}
+          />
+        )}
 
-      {savedToast && (
-        <View style={[styles.toast, { backgroundColor: "#2ecc71" }]}>
-          <Text style={styles.toastText}>{"\u2714"} Your entry has been saved successfully</Text>
-        </View>
-      )}
-
-      {deleteToast && (
-        <View style={[styles.toast, { backgroundColor: "#e74c3c" }]}>
-          <Text style={styles.toastText}>Entry deleted</Text>
-        </View>
-      )}
-
-      {limitToast && (
-        <View style={[styles.toast, { backgroundColor: "#FF9500" }]}>
-          <Text style={styles.toastText}>Free limit reached. Upgrade to Pro for unlimited entries.</Text>
-        </View>
-      )}
-    </View>
+        {toastMessage && (
+          <Animated.View
+            style={[
+              styles.toast,
+              {
+                backgroundColor:
+                  toastType === "saved" ? Colors.accent : toastType === "deleted" ? Colors.danger : Colors.success,
+                opacity: toastAnim,
+                transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
+              },
+            ]}
+          >
+            {toastType === "deleted" && undoDelete ? (
+              <View style={styles.toastWithUndo}>
+                <Text style={styles.toastText}>{toastMessage}</Text>
+                <Pressable onPress={handleUndoDelete} style={styles.undoBtn}>
+                  <Text style={styles.undoText}>UNDO</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <Text style={styles.toastText}>{toastMessage}</Text>
+            )}
+          </Animated.View>
+        )}
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
   container: {
     flex: 1,
   },
@@ -410,104 +654,176 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  toolbarContainer: {
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.sm,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  logo: {
+    fontFamily: FontFamily.display,
+    fontSize: FontSize.xxl,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.sm,
+  },
+  headerBtn: {
+    padding: Spacing.sm,
   },
   searchRow: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: BorderRadius.md,
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderRadius: BorderRadius.full,
     borderWidth: 1,
     paddingHorizontal: Spacing.md,
-    height: 44,
+    height: 40,
     gap: Spacing.sm,
-  },
-  searchIcon: {
-    fontSize: 15,
   },
   searchInput: {
     flex: 1,
     fontSize: FontSize.md,
     paddingVertical: 0,
   },
-  clearSearch: {
-    fontSize: 14,
-    fontWeight: "700",
+  sortToggleBtn: {
+    padding: Spacing.xs,
   },
-  sortRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    position: "relative",
+  categoryRow: {
+    flexGrow: 0,
   },
-  sortToggle: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: BorderRadius.sm,
-    borderWidth: 1,
+  categoryScroll: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  categoryPill: {
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
-    gap: Spacing.xs,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
   },
-  sortToggleText: {
+  categoryPillText: {
+    fontSize: FontSize.sm,
+    fontWeight: "500",
+  },
+  clipboardCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.xs,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    gap: Spacing.sm,
+  },
+  clipboardText: {
+    flex: 1,
+    fontSize: FontSize.md,
+  },
+  clipboardBtn: {
+    backgroundColor: Colors.accent,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs + 2,
+    borderRadius: BorderRadius.full,
+  },
+  clipboardBtnText: {
+    color: Colors.onAccent,
     fontSize: FontSize.sm,
     fontWeight: "600",
   },
-  sortMenu: {
-    position: "absolute",
-    top: 40,
-    left: 0,
+  sectionLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    paddingHorizontal: Spacing.lg,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  pinnedScroll: {
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.sm,
+    paddingBottom: Spacing.sm,
+  },
+  pinnedCard: {
+    width: 160,
+    padding: Spacing.md,
     borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    minWidth: 160,
-    zIndex: 10,
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  sortMenuItem: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm + 2,
+  pinnedHeadline: {
+    fontFamily: FontFamily.display,
+    fontSize: FontSize.md,
+    marginBottom: Spacing.xs,
   },
-  sortMenuText: {
+  pinnedBody: {
     fontSize: FontSize.sm,
+    lineHeight: 18,
+    marginBottom: Spacing.sm,
+  },
+  pinnedTime: {
+    fontSize: FontSize.xs,
+    fontWeight: "600",
+  },
+  sortBar: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    gap: Spacing.xs,
+  },
+  sortPill: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs + 2,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+  },
+  sortPillText: {
+    fontSize: FontSize.xs,
+    fontWeight: "500",
   },
   listContent: {
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: 100,
+    paddingBottom: 120,
   },
-  emptySearchContainer: {
+  emptyContainer: {
     alignItems: "center",
-    paddingVertical: Spacing.xl,
-  },
-  emptySearchText: {
-    fontSize: FontSize.md,
-  },
-  welcomeContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+    paddingTop: Spacing.xxl,
     paddingHorizontal: Spacing.xl,
   },
-  welcomeIcon: {
-    fontSize: 64,
+  emptyTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: "600",
+    marginTop: Spacing.md,
     marginBottom: Spacing.lg,
+    textAlign: "center",
   },
-  welcomeTitle: {
-    fontSize: FontSize.xxl,
-    fontWeight: "700",
+  exampleCard: {
+    width: "100%",
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: StyleSheet.hairlineWidth,
     marginBottom: Spacing.sm,
-    textAlign: "center",
+    opacity: 0.6,
   },
-  welcomeSubtitle: {
+  exampleHeadline: {
+    fontFamily: FontFamily.display,
     fontSize: FontSize.md,
+    marginBottom: Spacing.xs,
+  },
+  exampleBody: {
+    fontSize: FontSize.sm,
+    lineHeight: 18,
+  },
+  limitText: {
     textAlign: "center",
-    lineHeight: 22,
+    fontSize: FontSize.xs,
+    paddingBottom: Spacing.sm,
   },
   fab: {
     position: "absolute",
@@ -519,30 +835,33 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.accent,
     justifyContent: "center",
     alignItems: "center",
-    elevation: 8,
-    shadowColor: Colors.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  fabText: {
-    color: "#fff",
-    fontSize: 28,
-    fontWeight: "300",
-    marginTop: -2,
+    ...Shadow.lg,
   },
   toast: {
     position: "absolute",
-    bottom: 100,
+    bottom: 90,
     alignSelf: "center",
-    backgroundColor: Colors.accent,
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.full,
   },
+  toastWithUndo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
   toastText: {
-    color: "#fff",
+    color: Colors.onAccent,
     fontSize: FontSize.sm,
     fontWeight: "600",
+  },
+  undoBtn: {
+    paddingHorizontal: Spacing.sm,
+  },
+  undoText: {
+    color: Colors.onAccent,
+    fontSize: FontSize.sm,
+    fontWeight: "800",
+    textDecorationLine: "underline",
   },
 });
