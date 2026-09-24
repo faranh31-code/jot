@@ -1,14 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Modal,
+  Alert,
+  BackHandler,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize, BorderRadius, Shadow, FontFamily } from '../constants/theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { trackEvent } from '../services/analytics';
 
 type Plan = 'monthly' | 'annual' | 'lifetime';
@@ -18,15 +21,13 @@ interface PaywallModalProps {
   isDark: boolean;
   trigger?: string;
   onClose: () => void;
-  onPurchase: (plan: Plan) => void;
-  onRestore: () => void;
 }
 
 const PRO_FEATURES = [
-  { icon: 'infinite-outline' as const, text: 'Unlimited Jots' },
+  { icon: 'infinite-outline' as const, text: 'Unlimited Notas' },
   { icon: 'ban-outline' as const, text: 'Ad-free experience' },
   { icon: 'share-social-outline' as const, text: 'Advanced sharing & export' },
-  { icon: 'color-palette-outline' as const, text: 'Premium Jot Card styles' },
+  { icon: 'color-palette-outline' as const, text: 'Premium Note Card styles' },
   { icon: 'close-circle-outline' as const, text: 'Remove branding' },
   { icon: 'flash-outline' as const, text: 'Priority support' },
 ];
@@ -63,8 +64,8 @@ const PLAN_DETAILS: Record<
 const PLAN_ORDER: Plan[] = ['monthly', 'annual', 'lifetime'];
 
 const CTA_TEXT: Record<Plan, string> = {
-  monthly: 'Start Jot Pro — Monthly',
-  annual: 'Start Jot Pro — Annual',
+  monthly: 'Start Nota Pro — Monthly',
+  annual: 'Start Nota Pro — Annual',
   lifetime: 'Unlock Lifetime Access',
 };
 
@@ -73,147 +74,227 @@ export default function PaywallModal({
   isDark,
   trigger,
   onClose,
-  onPurchase,
-  onRestore,
 }: PaywallModalProps) {
   const theme = isDark ? Colors.dark : Colors.light;
+  const insets = useSafeAreaInsets();
   const [selectedPlan, setSelectedPlan] = useState<Plan>('annual');
+  const [busy, setBusy] = useState(false);
+  const [viewH, setViewH] = useState(0);
+  const [contentH, setContentH] = useState(0);
+  const slide = useRef(new Animated.Value(300)).current;
+
+  const canScroll = contentH > viewH + 2;
 
   useEffect(() => {
     if (isVisible) {
+      setViewH(0);
+      setContentH(0);
+      slide.setValue(300);
+      Animated.timing(slide, {
+        toValue: 0,
+        duration: 260,
+        useNativeDriver: true,
+      }).start();
       trackEvent({ event: 'paywall_viewed', params: { trigger: trigger || 'unknown' } });
     }
-  }, [isVisible, trigger]);
+  }, [isVisible, trigger, slide]);
+
+  useEffect(() => {
+    if (!isVisible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [isVisible, onClose]);
 
   const selectPlan = (plan: Plan) => {
     setSelectedPlan(plan);
     trackEvent({ event: PLAN_DETAILS[plan].event });
   };
 
-  return (
-    <Modal
-      visible={isVisible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
-    >
-      <View style={[styles.container, { backgroundColor: theme.bg }]}>
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          showsVerticalScrollIndicator={false}
-        >
-          <TouchableOpacity
-            onPress={onClose}
-            style={[styles.closeButton, { backgroundColor: theme.input }]}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-          >
-            <Ionicons name="close" size={20} color={theme.textSecondary} />
-          </TouchableOpacity>
+  const handlePurchase = async (plan: Plan) => {
+    if (busy) return;
+    setBusy(true);
+    const planId: 'pro_monthly' | 'pro_annual' | 'pro_lifetime' =
+      plan === 'monthly' ? 'pro_monthly' : plan === 'annual' ? 'pro_annual' : 'pro_lifetime';
+    try {
+      const { purchaseProMonthly, purchaseProAnnual, purchaseProLifetime } =
+        await import('../services/subscription');
+      const success =
+        plan === 'monthly'
+          ? await purchaseProMonthly()
+          : plan === 'annual'
+          ? await purchaseProAnnual()
+          : await purchaseProLifetime();
+      if (success) {
+        trackEvent({ event: 'purchase_success', params: { plan: planId } });
+        onClose();
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
 
-          <View style={styles.heroSection}>
-            <View style={styles.iconContainer}>
-              <View style={styles.iconBackground}>
-                <Ionicons name="diamond" size={40} color={Colors.onAccent} />
+  const handleRestore = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const { restorePurchases } = await import('../services/subscription');
+      const success = await restorePurchases();
+      if (success) {
+        onClose();
+      } else {
+        Alert.alert('No Purchases', 'No previous purchases found to restore.');
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!isVisible) {
+    return null;
+  }
+
+  return (
+    <View style={styles.overlay}>
+      <TouchableOpacity
+        style={styles.backdrop}
+        activeOpacity={1}
+        onPress={onClose}
+        accessibilityRole="button"
+        accessibilityLabel="Close"
+      />
+      <Animated.View
+        style={[
+          styles.sheet,
+          { backgroundColor: theme.bg, transform: [{ translateY: slide }] },
+        ]}
+      >
+        <View style={[styles.handle, { backgroundColor: theme.border }]} />
+
+        <View
+          style={styles.scrollWrap}
+          onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            if (h > 0) setViewH(h);
+          }}
+        >
+          <ScrollView
+            contentContainerStyle={[styles.scroll, { paddingBottom: canScroll ? Spacing.md : 0 }]}
+            showsVerticalScrollIndicator={false}
+            onContentSizeChange={(_w, h) => setContentH(h)}
+          >
+            <View style={styles.heroSection}>
+              <View style={[styles.iconBackground, { backgroundColor: Colors.accent }]}>
+                <Ionicons name="diamond" size={22} color={Colors.onAccent} />
               </View>
+              <Text style={[styles.title, { color: theme.text }]}>
+                Unlock Nota Pro
+              </Text>
+              <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+                All premium features, unlimited access.
+              </Text>
             </View>
 
-            <Text style={[styles.title, { color: theme.text }]}>
-              Unlock Jot Pro
-            </Text>
-            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-              Get the full Jot experience with unlimited access to all premium features.
-            </Text>
-          </View>
-
-          <View style={styles.featuresSection}>
-            {PRO_FEATURES.map((feature) => (
-              <View key={feature.text} style={styles.featureRow}>
-                <View style={[styles.featureIconContainer, { backgroundColor: theme.accentLight }]}>
-                  <Ionicons
-                    name={feature.icon}
-                    size={20}
-                    color={theme.accentText}
-                  />
+            <View style={styles.featuresSection}>
+              {PRO_FEATURES.map((feature) => (
+                <View key={feature.text} style={styles.featureRow}>
+                  <View style={[styles.featureIconContainer, { backgroundColor: theme.accentLight }]}>
+                    <Ionicons name={feature.icon} size={13} color={theme.accentText} />
+                  </View>
+                  <Text style={[styles.featureText, { color: theme.text }]} numberOfLines={2}>
+                    {feature.text}
+                  </Text>
                 </View>
-                <Text style={[styles.featureText, { color: theme.text }]}>
-                  {feature.text}
-                </Text>
-                <Ionicons
-                  name="checkmark-circle"
-                  size={18}
-                  color={Colors.success}
-                />
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
 
-          <View style={styles.plansSection}>
-            {PLAN_ORDER.map((plan) => {
-              const details = PLAN_DETAILS[plan];
-              const isActive = selectedPlan === plan;
-              return (
-                <TouchableOpacity
-                  key={plan}
-                  onPress={() => selectPlan(plan)}
-                  activeOpacity={0.7}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: isActive }}
-                  style={[
-                    styles.planRow,
-                    {
-                      backgroundColor: theme.surface,
-                      borderColor: isActive ? theme.accentText : theme.border,
-                    },
-                  ]}
-                >
-                  <View
+            <View style={styles.plansSection}>
+              {PLAN_ORDER.map((plan) => {
+                const details = PLAN_DETAILS[plan];
+                const isActive = selectedPlan === plan;
+                return (
+                  <TouchableOpacity
+                    key={plan}
+                    onPress={() => selectPlan(plan)}
+                    activeOpacity={0.7}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: isActive }}
                     style={[
-                      styles.radioOuter,
-                      { borderColor: isActive ? theme.accentText : theme.border },
+                      styles.planRow,
+                      {
+                        backgroundColor: theme.surface,
+                        borderColor: isActive ? theme.accentText : theme.border,
+                      },
                     ]}
                   >
-                    {isActive && <View style={[styles.radioInner, { backgroundColor: theme.accentText }]} />}
-                  </View>
-
-                  <View style={styles.planInfo}>
-                    <View style={styles.planNameRow}>
-                      <Text style={[styles.planName, { color: theme.text }]}>{details.name}</Text>
-                      {details.badge && (
-                        <View style={[styles.planBadge, { backgroundColor: theme.accentLight }]}>
-                          <Text style={[styles.planBadgeText, { color: theme.accentText }]}>
-                            {details.badge}
-                          </Text>
-                        </View>
-                      )}
+                    <View
+                      style={[
+                        styles.radioOuter,
+                        { borderColor: isActive ? theme.accentText : theme.border },
+                      ]}
+                    >
+                      {isActive && <View style={[styles.radioInner, { backgroundColor: theme.accentText }]} />}
                     </View>
-                    <Text style={[styles.planSubtext, { color: theme.textSecondary }]}>
-                      {details.subtext}
-                    </Text>
-                  </View>
 
-                  <View style={styles.planPriceBlock}>
-                    <Text style={[styles.planPrice, { color: theme.text }]}>{details.price}</Text>
-                    <Text style={[styles.planPeriod, { color: theme.textMuted }]}>{details.period}</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </ScrollView>
+                    <View style={styles.planInfo}>
+                      <View style={styles.planNameRow}>
+                        <Text style={[styles.planName, { color: theme.text }]}>{details.name}</Text>
+                        {details.badge && (
+                          <View style={[styles.planBadge, { backgroundColor: theme.accentLight }]}>
+                            <Text style={[styles.planBadgeText, { color: theme.accentText }]}>
+                              {details.badge}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={[styles.planSubtext, { color: theme.textSecondary }]} numberOfLines={1}>
+                        {details.subtext}
+                      </Text>
+                    </View>
 
-        <View style={[styles.bottomSection, { borderTopColor: theme.border, backgroundColor: theme.bg }]}>
+                    <View style={styles.planPriceBlock}>
+                      <Text style={[styles.planPrice, { color: theme.text }]}>{details.price}</Text>
+                      <Text style={[styles.planPeriod, { color: theme.textMuted }]}>{details.period}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
+
+          {canScroll && (
+            <View style={styles.scrollHint} pointerEvents="none">
+              <Ionicons name="chevron-down" size={12} color={theme.textMuted} />
+              <Text style={[styles.scrollHintText, { color: theme.textMuted }]}>Swipe for more</Text>
+              <Ionicons name="chevron-down" size={12} color={theme.textMuted} />
+            </View>
+          )}
+        </View>
+
+        <View
+          style={[
+            styles.bottomSection,
+            {
+              borderTopColor: theme.border,
+              backgroundColor: theme.bg,
+              paddingBottom: Spacing.md + insets.bottom,
+            },
+          ]}
+        >
           <TouchableOpacity
-            style={styles.ctaButton}
-            onPress={() => onPurchase(selectedPlan)}
+            style={[styles.ctaButton, busy && { opacity: 0.6 }]}
+            onPress={() => handlePurchase(selectedPlan)}
+            disabled={busy}
             activeOpacity={0.85}
           >
-            <Text style={styles.ctaButtonText}>{CTA_TEXT[selectedPlan]}</Text>
+            <Text style={styles.ctaButtonText}>{busy ? 'Processing…' : CTA_TEXT[selectedPlan]}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={onRestore}
+            onPress={handleRestore}
+            disabled={busy}
             activeOpacity={0.7}
             style={styles.restoreButton}
           >
@@ -222,113 +303,144 @@ export default function PaywallModal({
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={onClose}
-            activeOpacity={0.7}
-            style={styles.dismissButton}
-          >
+          <TouchableOpacity onPress={onClose} activeOpacity={0.7} style={styles.dismissButton}>
             <Text style={[styles.dismissText, { color: theme.textMuted }]}>
               Maybe Later
             </Text>
           </TouchableOpacity>
         </View>
-      </View>
-    </Modal>
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'flex-end',
+    zIndex: 100,
+    elevation: 100,
+  },
+  backdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  sheet: {
+    width: '100%',
+    height: '92%',
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    overflow: 'hidden',
+    ...Shadow.lg,
+  },
+  handle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: BorderRadius.full,
+    marginTop: Spacing.sm,
+  },
+  scrollWrap: {
     flex: 1,
+    marginTop: Spacing.xs,
   },
   scroll: {
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
   },
-  closeButton: {
-    alignSelf: 'flex-end',
-    marginRight: Spacing.md,
-    width: 32,
-    height: 32,
-    borderRadius: BorderRadius.full,
+  scrollHint: {
+    position: 'absolute',
+    bottom: Spacing.xs,
+    alignSelf: 'center',
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: Spacing.xs,
+  },
+  scrollHintText: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
   },
   heroSection: {
     alignItems: 'center',
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.lg,
-  },
-  iconContainer: {
-    marginBottom: Spacing.lg,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.md,
   },
   iconBackground: {
-    width: 80,
-    height: 80,
-    borderRadius: BorderRadius.xxl,
-    backgroundColor: Colors.accent,
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    ...Shadow.lg,
+    ...Shadow.sm,
   },
   title: {
     fontFamily: FontFamily.display,
-    fontSize: FontSize.hero,
+    fontSize: FontSize.xl,
     textAlign: 'center',
-    marginBottom: Spacing.sm,
+    marginTop: Spacing.sm,
+    marginBottom: 2,
   },
   subtitle: {
-    fontSize: FontSize.md,
+    fontSize: FontSize.sm,
     textAlign: 'center',
-    lineHeight: 22,
-    paddingHorizontal: Spacing.md,
+    lineHeight: 18,
+    paddingHorizontal: Spacing.sm,
   },
   featuresSection: {
-    paddingHorizontal: Spacing.xl,
-    marginBottom: Spacing.lg,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.md,
   },
   featureRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: Spacing.md,
-    gap: Spacing.md,
+    width: '48.5%',
+    paddingVertical: Spacing.xs,
+    gap: Spacing.sm,
   },
   featureIconContainer: {
-    width: 36,
-    height: 36,
+    width: 26,
+    height: 26,
     borderRadius: BorderRadius.sm,
     alignItems: 'center',
     justifyContent: 'center',
   },
   featureText: {
     flex: 1,
-    fontSize: FontSize.md,
+    fontSize: FontSize.xs,
     fontWeight: '500',
+    lineHeight: 15,
   },
   plansSection: {
-    paddingHorizontal: Spacing.xl,
     gap: Spacing.sm,
   },
   planRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: Spacing.md,
+    padding: Spacing.sm,
     borderRadius: BorderRadius.lg,
     borderWidth: 2,
-    gap: Spacing.md,
+    gap: Spacing.sm,
   },
   radioOuter: {
-    width: 22,
-    height: 22,
+    width: 18,
+    height: 18,
     borderRadius: BorderRadius.full,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   radioInner: {
-    width: 12,
-    height: 12,
+    width: 10,
+    height: 10,
     borderRadius: BorderRadius.full,
   },
   planInfo: {
@@ -338,19 +450,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    marginBottom: 2,
+    marginBottom: 1,
   },
   planName: {
-    fontSize: FontSize.md,
+    fontSize: FontSize.sm,
     fontWeight: '700',
   },
   planBadge: {
     paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
+    paddingVertical: 1,
     borderRadius: BorderRadius.full,
   },
   planBadgeText: {
-    fontSize: FontSize.xs,
+    fontSize: 9,
     fontWeight: '700',
     letterSpacing: 0.3,
   },
@@ -361,16 +473,15 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   planPrice: {
-    fontSize: FontSize.lg,
+    fontSize: FontSize.md,
     fontWeight: '700',
   },
   planPeriod: {
     fontSize: FontSize.xs,
   },
   bottomSection: {
-    paddingHorizontal: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
-    paddingBottom: Spacing.xxl,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   ctaButton: {
@@ -378,17 +489,17 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     paddingVertical: Spacing.md,
     alignItems: 'center',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
     ...Shadow.md,
   },
   ctaButtonText: {
     color: Colors.onAccent,
-    fontSize: FontSize.lg,
+    fontSize: FontSize.md,
     fontWeight: '700',
   },
   restoreButton: {
     alignItems: 'center',
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.xs,
   },
   restoreText: {
     fontSize: FontSize.sm,
@@ -396,7 +507,8 @@ const styles = StyleSheet.create({
   },
   dismissButton: {
     alignItems: 'center',
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    paddingBottom: Spacing.xs,
   },
   dismissText: {
     fontSize: FontSize.sm,

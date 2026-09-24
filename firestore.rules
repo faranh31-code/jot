@@ -2,11 +2,94 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Entries collection - users can only read/write their own entries
+    // Entries collection - users can read/write their own entries, and read/write
+    // entries shared with them via the collaborators (email) array.
     match /entries/{entryId} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      function isOwner() {
+        return request.auth != null && resource.data.userId == request.auth.uid;
+      }
+      function isCollaborator() {
+        return request.auth != null
+          && request.auth.token.email in resource.data.collaborators;
+      }
+      function newIsOwner() {
+        return request.auth != null && request.resource.data.userId == request.auth.uid;
+      }
+      allow read: if isOwner() || isCollaborator();
+      allow create: if newIsOwner();
+      allow update: if isOwner() || isCollaborator();
+      // Deleting a document that no longer exists (resource == null) is a
+      // harmless no-op and must not be rejected — clients may attempt it for
+      // notes that only ever lived in local storage.
+      allow delete: if isOwner() || (request.auth != null && resource == null);
+    }
+
+    // ─── Referral Program ────────────────────────────────────────────────────
+    // Referral counts and Pro grants are authoritatively owned by the backend
+    // (Cloud Function with admin SDK). Clients may only bootstrap their own
+    // profile (all counters zeroed) and submit one pending claim. Nobody can
+    // mutate referralCount / referralRewarded / referredBy from the client.
+
+    // users/{uid}: referral profile for a given user.
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      // Bootstrap only: a user may create their own profile once, all counters
+      // at their zero/default values. Field values are validated so a client
+      // cannot pre-seed a fake referredBy or inflated count.
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.userId == uid
+        && request.resource.data.referralCode is string
+        && request.resource.data.referredBy == null
+        && request.resource.data.referralCount == 0
+        && request.resource.data.referralRewarded == false;
+
+      // No client updates — the backend owns count/reward mutations.
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // referral_codes/{code}: maps an uppercase invite code to its owner.
+    match /referral_codes/{code} {
+      allow read: if request.auth != null
+        && resource.data.ownerUid == request.auth.uid;
+
+      // A user claims their own code doc (code derived from their uid). The
+      // ownerUid must be themselves, so nobody can squat someone else's code.
+      allow create: if request.auth != null
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.createdAt is number;
+
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // referral_claims/{claimId}: an email signup recording which code they used.
+    // Created once per signup; the backend flips status pending -> processed.
+    match /referral_claims/{claimId} {
+      function validClaim() {
+        return request.auth != null
+          && request.resource.data.claimedByUid == request.auth.uid
+          && request.resource.data.claimedByEmail == request.auth.token.email
+          && request.resource.data.provider == 'password'
+          && request.resource.data.code is string
+          && request.resource.data.code.size() > 0
+          && request.resource.data.status == 'pending';
+      }
+      allow read: if request.auth != null
+        && resource.data.claimedByUid == request.auth.uid;
+      allow create: if validClaim();
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // referral_grants/{uid}: Pro granted exclusively by the backend.
+    match /referral_grants/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
     }
   }
 }

@@ -1,10 +1,11 @@
 import { getBannerAdUnitId } from "../constants/admob";
 import React, { useEffect, useState, useCallback } from "react";
 import { Platform, StyleSheet, View } from "react-native";
-import { onAdsReady, isAdsInitialized } from "../services/ads";
+import { onAdsReady, isAdsInitialized, adDiag, formatAdError } from "../services/ads";
 import { Colors } from "../constants/theme";
+import { trackEvent } from "../services/analytics";
 
-const isExpoGo = (global as any).expo?.modules?.ExponentConstants?.appOwnership === "expo";
+const isExpoGo = (globalThis as any).expo?.modules?.ExponentConstants?.appOwnership === "expo";
 
 let BannerAd: any = null;
 let BannerAdSize: any = null;
@@ -28,6 +29,7 @@ const AdBanner: React.FC<AdBannerProps> = ({ isDark, position = "top" }) => {
   const [sdkReady, setSdkReady] = useState(isAdsInitialized());
   const [adError, setAdError] = useState<string | null>(null);
   const [adLoaded, setAdLoaded] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     if (isAdsInitialized()) {
@@ -51,15 +53,30 @@ const AdBanner: React.FC<AdBannerProps> = ({ isDark, position = "top" }) => {
     return () => clearTimeout(timeout);
   }, [sdkReady, adLoaded, adError, position]);
 
+  useEffect(() => {
+    if (!adError) return;
+    const timer = setTimeout(() => {
+      console.log(`AdBanner (${position}): Retrying ad load`);
+      setAdError(null);
+      setRetryKey((k) => k + 1);
+    }, 15000);
+    return () => clearTimeout(timer);
+  }, [adError, retryKey, position]);
+
   const handleAdLoaded = useCallback(() => {
     console.log(`AdBanner (${position}): Ad loaded successfully`);
+    adDiag("info", `Banner(${position}) loaded`);
     setAdError(null);
     setAdLoaded(true);
+    trackEvent({ event: "banner_ad_loaded" });
   }, [position]);
 
   const handleAdFailedToLoad = useCallback((error: any) => {
-    console.log(`AdBanner (${position}): Ad failed to load -`, error?.message || error);
-    setAdError(error?.message || "Unknown error");
+    const detail = formatAdError(error);
+    console.log(`AdBanner (${position}): Ad failed to load -`, error, "detail=", detail);
+    adDiag("error", `Banner(${position}) failed: ${detail}`);
+    setAdError(detail || "Unknown error");
+    setAdLoaded(false);
   }, [position]);
 
   if (Platform.OS === "web" || isExpoGo || !BannerAd || !BannerAdSize) {
@@ -71,7 +88,6 @@ const AdBanner: React.FC<AdBannerProps> = ({ isDark, position = "top" }) => {
   }
 
   const unitId = getBannerAdUnitId();
-  console.log(`AdBanner (${position}): Rendering banner with unitId:`, unitId);
 
   return (
     <View
@@ -85,6 +101,7 @@ const AdBanner: React.FC<AdBannerProps> = ({ isDark, position = "top" }) => {
       ]}
     >
       <BannerAd
+        key={retryKey}
         unitId={unitId}
         size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
         onAdLoaded={handleAdLoaded}

@@ -10,11 +10,19 @@ import {
   Platform,
   Modal,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
-import { Jot, JotCategory, CATEGORIES } from '../types';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Jot, JotCategory, CATEGORIES, StickyNoteColor, STICKY_NOTE_COLORS, STICKY_NOTE_NAMES, DEFAULT_NOTE_COLOR } from '../types';
 import { Colors, Spacing, FontSize, BorderRadius, Shadow, FontFamily } from '../constants/theme';
+import AdBanner from './AdBanner';
+import PaywallModal from './PaywallModal';
+import { showRewardedInterstitial, loadRewardedInterstitial } from '../services/ads';
 
 const FREE_TAG_LIMIT = 3;
+const REWARDED_EXTRA_TAGS = 3;
+
+const NOTE_COLOR_KEYS = Object.keys(STICKY_NOTE_COLORS) as StickyNoteColor[];
 
 interface JotEditorProps {
   isVisible: boolean;
@@ -23,7 +31,14 @@ interface JotEditorProps {
   onOpenPaywall: (trigger?: string) => void;
   editJot?: Jot | null;
   initialText?: string;
-  onSave: (headline: string, body: string, tags: string[], category: JotCategory) => void;
+  onSave: (
+    headline: string,
+    body: string,
+    tags: string[],
+    category: JotCategory,
+    isNote: boolean,
+    noteColor: StickyNoteColor
+  ) => void;
   onClose: () => void;
 }
 
@@ -31,28 +46,74 @@ export default function JotEditor({
   isVisible,
   isDark,
   isPro,
-  onOpenPaywall,
   editJot,
   initialText,
   onSave,
   onClose,
 }: JotEditorProps) {
   const theme = isDark ? Colors.dark : Colors.light;
+  const insets = useSafeAreaInsets();
   const bodyRef = useRef<TextInput>(null);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallTrigger, setPaywallTrigger] = useState<string | undefined>(undefined);
+
+  const openPaywall = (trigger?: string) => {
+    setPaywallTrigger(trigger);
+    setPaywallVisible(true);
+  };
 
   const [headline, setHeadline] = useState('');
   const [body, setBody] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [category, setCategory] = useState<JotCategory>('personal');
+  const [isNote, setIsNote] = useState(false);
+  const [noteColor, setNoteColor] = useState<StickyNoteColor>(DEFAULT_NOTE_COLOR);
+  const [copied, setCopied] = useState(false);
+  const [extraTagsUnlocked, setExtraTagsUnlocked] = useState(false);
+  const [rewardLoading, setRewardLoading] = useState(false);
+
+  const effectiveTagLimit = isPro ? Infinity : extraTagsUnlocked ? FREE_TAG_LIMIT + REWARDED_EXTRA_TAGS : FREE_TAG_LIMIT;
+
+  const handleWatchAdForTags = async () => {
+    if (rewardLoading) return;
+    setRewardLoading(true);
+    const shown = await showRewardedInterstitial({
+      onEarned: () => setExtraTagsUnlocked(true),
+      onDismissed: () => setRewardLoading(false),
+    });
+    if (!shown) {
+      setTimeout(() => setRewardLoading(false), 1000);
+    } else {
+      setTimeout(() => setRewardLoading(false), 60000);
+    }
+  };
+
+  useEffect(() => {
+    if (isVisible && !isPro) {
+      loadRewardedInterstitial();
+    }
+  }, [isVisible, isPro]);
+
+  const handleCopyBody = async () => {
+    const content = headline.trim() || body.trim();
+    if (!content) return;
+    const full = headline.trim() ? `${headline.trim()}\n\n${body.trim()}` : body.trim();
+    await Clipboard.setStringAsync(isPro ? full : `${full}\n\n— Made with Nota`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   useEffect(() => {
     if (isVisible) {
+      setExtraTagsUnlocked(false);
       if (editJot) {
         setHeadline(editJot.headline);
         setBody(editJot.body);
         setTags([...editJot.tags]);
         setCategory(editJot.category);
+        setIsNote(!!editJot.isNote);
+        setNoteColor(editJot.noteColor || DEFAULT_NOTE_COLOR);
       } else if (initialText) {
         const lines = initialText.split('\n');
         if (lines.length > 1) {
@@ -63,11 +124,15 @@ export default function JotEditor({
         }
         setTags([]);
         setCategory('personal');
+        setIsNote(false);
+        setNoteColor(DEFAULT_NOTE_COLOR);
       } else {
         setHeadline('');
         setBody('');
         setTags([]);
         setCategory('personal');
+        setIsNote(false);
+        setNoteColor(DEFAULT_NOTE_COLOR);
       }
       setTagInput('');
     }
@@ -77,9 +142,9 @@ export default function JotEditor({
     if (text.endsWith(' ') || text.endsWith('\n')) {
       const newTag = text.trim().replace(/^#/, '');
       if (newTag && !tags.includes(newTag)) {
-        if (!isPro && tags.length >= FREE_TAG_LIMIT) {
+        if (!isPro && tags.length >= effectiveTagLimit) {
           setTagInput('');
-          onOpenPaywall('pro_feature');
+          openPaywall('pro_feature');
           return;
         }
         setTags([...tags, newTag]);
@@ -98,7 +163,7 @@ export default function JotEditor({
     const trimmedHeadline = headline.trim();
     const trimmedBody = body.trim();
     if (!trimmedHeadline && !trimmedBody) return;
-    onSave(trimmedHeadline, trimmedBody, tags, category);
+    onSave(trimmedHeadline, trimmedBody, tags, category, isNote, noteColor);
   }
 
   const isEditing = !!editJot;
@@ -114,7 +179,15 @@ export default function JotEditor({
         style={[styles.container, { backgroundColor: theme.bg }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={[styles.header, { borderBottomColor: theme.border }]}>
+        <View
+          style={[
+            styles.header,
+            {
+              borderBottomColor: theme.border,
+              paddingTop: Spacing.lg + (Platform.OS === 'android' ? insets.top : 0),
+            },
+          ]}
+        >
           <TouchableOpacity onPress={onClose} style={styles.headerButton}>
             <Text style={[styles.cancelText, { color: theme.accentText }]}>
               Cancel
@@ -122,7 +195,7 @@ export default function JotEditor({
           </TouchableOpacity>
 
           <Text style={[styles.headerTitle, { color: theme.text }]}>
-            {isEditing ? 'Edit Jot' : 'New Jot'}
+            {isEditing ? 'Edit' : 'New'}
           </Text>
 
           <TouchableOpacity
@@ -168,6 +241,25 @@ export default function JotEditor({
             autoFocus={!editJot}
           />
 
+          {(headline.trim() || body.trim()) && (
+            <TouchableOpacity
+              onPress={handleCopyBody}
+              activeOpacity={0.7}
+              style={[styles.copyBodyBtn, { backgroundColor: theme.input, borderColor: copied ? Colors.success : theme.border }]}
+              accessibilityRole="button"
+              accessibilityLabel="Copy to clipboard"
+            >
+              <Ionicons
+                name={copied ? 'checkmark-circle' : 'copy-outline'}
+                size={14}
+                color={copied ? Colors.success : theme.textSecondary}
+              />
+              <Text style={[styles.copyBodyText, { color: copied ? Colors.success : theme.textSecondary }]}>
+                {copied ? 'Copied to Clipboard' : 'Copy to Clipboard'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
           <TextInput
             ref={bodyRef}
             style={[
@@ -200,13 +292,37 @@ export default function JotEditor({
               />
             </View>
 
-            {!isPro && tags.length >= FREE_TAG_LIMIT && (
-              <TouchableOpacity onPress={() => onOpenPaywall('pro_feature')} style={styles.tagLimitRow}>
+            {!isPro && tags.length >= FREE_TAG_LIMIT && !extraTagsUnlocked && (
+              <TouchableOpacity onPress={() => openPaywall('pro_feature')} style={styles.tagLimitRow}>
                 <Text style={[styles.tagLimitText, { color: theme.textMuted }]}>
-                  {FREE_TAG_LIMIT} tags on Free —{' '}
+                  {effectiveTagLimit} tags on Free —{' '}
                   <Text style={{ color: theme.accentText, fontWeight: '600' }}>upgrade for unlimited</Text>
                 </Text>
               </TouchableOpacity>
+            )}
+
+            {!isPro && tags.length >= FREE_TAG_LIMIT && !extraTagsUnlocked && (
+              <TouchableOpacity
+                onPress={handleWatchAdForTags}
+                disabled={rewardLoading}
+                style={[styles.tagLimitRow, rewardLoading && { opacity: 0.6 }]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.tagLimitText, { color: theme.textMuted }]}>
+                  {rewardLoading ? 'Loading ad…' : (
+                    <>
+                      Want {REWARDED_EXTRA_TAGS} more?{' '}
+                      <Text style={{ color: theme.accentText, fontWeight: '600' }}>watch an ad</Text>
+                    </>
+                  )}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {!isPro && extraTagsUnlocked && (
+              <Text style={[styles.tagLimitText, { color: theme.accentText }]}>
+                {REWARDED_EXTRA_TAGS} extra tags unlocked for this note
+              </Text>
             )}
 
             {tags.length > 0 && (
@@ -225,6 +341,113 @@ export default function JotEditor({
                   </TouchableOpacity>
                 ))}
               </View>
+            )}
+          </View>
+
+          <View style={styles.stickySection}>
+            <Text style={[styles.stickyLabel, { color: theme.textMuted }]}>
+              Type
+            </Text>
+            <View style={styles.stickyTypeRow}>
+              <TouchableOpacity
+                onPress={() => setIsNote(false)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityState={{ selected: !isNote }}
+                style={[
+                  styles.stickyTypeBtn,
+                  {
+                    backgroundColor: !isNote ? theme.accentLight : theme.input,
+                    borderColor: !isNote ? theme.accentBorder : theme.border,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="document-text-outline"
+                  size={16}
+                  color={!isNote ? theme.accentText : theme.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.stickyTypeText,
+                    { color: !isNote ? theme.accentText : theme.textSecondary },
+                  ]}
+                >
+                  Card
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setIsNote(true)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isNote }}
+                style={[
+                  styles.stickyTypeBtn,
+                  {
+                    backgroundColor: isNote ? theme.accentLight : theme.input,
+                    borderColor: isNote ? theme.accentBorder : theme.border,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="albums-outline"
+                  size={16}
+                  color={isNote ? theme.accentText : theme.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.stickyTypeText,
+                    { color: isNote ? theme.accentText : theme.textSecondary },
+                  ]}
+                >
+                  Sticky note
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {isNote && (
+              <>
+                <Text style={[styles.stickyHint, { color: theme.textSecondary }]}>
+                  Sticky notes collect on your Sticky Wall — pick a color, they'll pop.
+                </Text>
+                <View style={styles.noteColorRow}>
+                  {NOTE_COLOR_KEYS.map((key) => {
+                    const { paper, ink } = STICKY_NOTE_COLORS[key];
+                    const isActive = noteColor === key;
+                    return (
+                      <TouchableOpacity
+                        key={key}
+                        onPress={() => setNoteColor(key)}
+                        activeOpacity={0.7}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${key} sticky note color`}
+                        accessibilityState={isActive ? { selected: true } : { selected: false }}
+                        style={styles.noteSwatchWrap}
+                      >
+                        <View
+                          style={[
+                            styles.noteColorSwatch,
+                            { backgroundColor: paper, borderColor: isActive ? theme.accentText : '#00000022' },
+                            isActive && styles.noteColorSwatchActive,
+                          ]}
+                        >
+                          {isActive && <Ionicons name="checkmark" size={15} color={ink} />}
+                        </View>
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.noteSwatchLabel,
+                            { color: isActive ? theme.accentText : theme.textMuted },
+                          ]}
+                        >
+                          {STICKY_NOTE_NAMES[key]}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
             )}
           </View>
 
@@ -278,7 +501,17 @@ export default function JotEditor({
           </View>
         </ScrollView>
 
-        <View style={[styles.bottomBar, { borderTopColor: theme.border, backgroundColor: theme.bg }]}>
+        <View
+          style={[
+            styles.bottomBar,
+            {
+              borderTopColor: theme.border,
+              backgroundColor: theme.bg,
+              paddingBottom: Spacing.md + insets.bottom,
+            },
+          ]}
+        >
+          {!isPro && <AdBanner isDark={isDark} position="bottom" />}
           <TouchableOpacity
             style={[styles.saveButton, { opacity: (!headline.trim() && !body.trim()) ? 0.5 : 1 }]}
             onPress={handleSave}
@@ -287,11 +520,17 @@ export default function JotEditor({
           >
             <Ionicons name="checkmark" size={20} color={Colors.onAccent} />
             <Text style={styles.saveButtonText}>
-              {isEditing ? 'Update Jot' : 'Save Jot'}
+              {isEditing ? 'Update' : 'Save'}
             </Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+      <PaywallModal
+        isVisible={paywallVisible}
+        isDark={isDark}
+        trigger={paywallTrigger}
+        onClose={() => setPaywallVisible(false)}
+      />
     </Modal>
   );
 }
@@ -312,6 +551,7 @@ const styles = StyleSheet.create({
   headerButton: {
     paddingVertical: Spacing.sm,
     minWidth: 60,
+    justifyContent: "center",
   },
   cancelText: {
     fontSize: FontSize.md,
@@ -339,6 +579,22 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xxl,
     marginBottom: Spacing.md,
     paddingVertical: Spacing.sm,
+  },
+  copyBodyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    marginBottom: Spacing.sm,
+    gap: Spacing.xs,
+    minHeight: 40,
+  },
+  copyBodyText: {
+    fontSize: FontSize.sm,
+    fontWeight: '500',
   },
   bodyInput: {
     fontFamily: FontFamily.sans,
@@ -385,6 +641,66 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontWeight: '500',
   },
+  stickySection: {
+    marginBottom: Spacing.lg,
+  },
+  stickyLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: '500',
+    marginBottom: Spacing.sm,
+  },
+  stickyTypeRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  stickyTypeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    minHeight: 44,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+  },
+  stickyTypeText: {
+    fontSize: FontSize.md,
+    fontWeight: '600',
+  },
+  stickyHint: {
+    fontSize: FontSize.xs,
+    marginTop: Spacing.sm,
+  },
+  noteColorRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    marginTop: Spacing.md,
+  },
+  noteSwatchWrap: {
+    alignItems: 'center',
+    gap: Spacing.xs,
+    width: '15%',
+  },
+  noteColorSwatch: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.full,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noteColorSwatchActive: {
+    transform: [{ scale: 1.12 }],
+  },
+  noteSwatchLabel: {
+    fontSize: 9,
+    textAlign: 'center',
+  },
   categorySection: {
     marginTop: Spacing.sm,
   },
@@ -412,7 +728,6 @@ const styles = StyleSheet.create({
   bottomBar: {
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
-    paddingBottom: Spacing.xl,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   saveButton: {

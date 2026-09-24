@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { Colors, Spacing, FontSize } from "../constants/theme";
 
 interface EmptyStateProps {
@@ -7,10 +8,13 @@ interface EmptyStateProps {
 }
 
 export default function EmptyState({ isDark }: EmptyStateProps) {
+  const theme = isDark ? Colors.dark : Colors.light;
   return (
     <View style={styles.container}>
-      <Text style={styles.icon}>{"\uD83D\uDCCB"}</Text>
-      <Text style={[styles.title, { color: isDark ? Colors.dark.text : Colors.light.text }]}>
+      <View style={[styles.iconWrap, { backgroundColor: theme.accentLight }]}>
+        <Ionicons name="clipboard-outline" size={44} color={theme.accentText} />
+      </View>
+      <Text style={[styles.title, { color: theme.text }]}>
         No entries yet
       </Text>
       <Text
@@ -32,8 +36,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: Spacing.xl,
   },
-  icon: {
-    fontSize: 64,
+  iconWrap: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: Spacing.lg,
   },
   title: {

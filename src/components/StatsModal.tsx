@@ -5,16 +5,18 @@ import { Colors, Spacing, FontSize, BorderRadius, FontFamily } from '../constant
 import { getJots } from '../services/firebase';
 import { getJotsCreatedByDay, DayBucket } from '../services/stats';
 import { getRetentionStats, RetentionStats } from '../services/analytics';
+import AdBanner from './AdBanner';
 
 interface StatsModalProps {
   isVisible: boolean;
   isDark: boolean;
   onClose: () => void;
+  isPro?: boolean;
 }
 
 const CHART_HEIGHT = 100;
 
-export default function StatsModal({ isVisible, isDark, onClose }: StatsModalProps) {
+export default function StatsModal({ isVisible, isDark, onClose, isPro = false }: StatsModalProps) {
   const theme = isDark ? Colors.dark : Colors.light;
   const [loading, setLoading] = useState(true);
   const [buckets, setBuckets] = useState<DayBucket[]>([]);
@@ -58,7 +60,7 @@ export default function StatsModal({ isVisible, isDark, onClose }: StatsModalPro
         ) : (
           <View style={styles.content}>
             <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={[styles.cardLabel, { color: theme.textMuted }]}>TOTAL JOTS</Text>
+              <Text style={[styles.cardLabel, { color: theme.textMuted }]}>TOTAL NOTAS</Text>
               <Text style={[styles.totalCount, { color: theme.text }]}>{totalJots}</Text>
             </View>
 
@@ -106,9 +108,15 @@ export default function StatsModal({ isVisible, isDark, onClose }: StatsModalPro
                 })}
               </View>
               <Text style={[styles.retentionNote, { color: theme.textMuted }]}>
-                {retention ? `${retention.daysSinceInstall} day${retention.daysSinceInstall === 1 ? '' : 's'} since you installed Jot` : ''}
+                {retention ? `${retention.daysSinceInstall} day${retention.daysSinceInstall === 1 ? '' : 's'} since you installed Nota` : ''}
               </Text>
             </View>
+          </View>
+        )}
+
+        {!isPro && !loading && (
+          <View style={styles.bannerWrap}>
+            <AdBanner isDark={isDark} position="bottom" />
           </View>
         )}
       </View>
@@ -129,8 +137,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   closeBtn: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -151,6 +159,10 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
     padding: Spacing.lg,
+  },
+  bannerWrap: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.sm,
   },
   cardLabel: {
     fontSize: FontSize.xs,

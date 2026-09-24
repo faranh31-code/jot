@@ -10,21 +10,45 @@ import {
   RefreshControl,
   TextInput,
   ScrollView,
-  SafeAreaView,
   Animated,
+  Modal,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Colors, BorderRadius, Spacing, FontSize, Shadow, FontFamily } from "../constants/theme";
 import { useJot } from "../hooks/useJot";
 import { useShare } from "../hooks/useShare";
 import { useInterstitialAd } from "../hooks/useInterstitialAd";
 import { useRewardedAd } from "../hooks/useRewardedAd";
-import { Jot, JotCategory, CATEGORIES, FREE_JOT_LIMIT } from "../types";
+import { Jot, JotCategory, FREE_JOT_LIMIT, StickyNoteColor, STICKY_NOTE_COLORS, DEFAULT_NOTE_COLOR } from "../types";
 import { isPro as checkIsPro, canCreateJot } from "../services/subscription";
+import { trackEvent, trackFirstCopy, trackFirstShare } from "../services/analytics";
 import JotCard from "../components/JotCard";
+import StickyNoteCard from "../components/StickyNoteCard";
 import JotEditor from "../components/JotEditor";
 import ShareCard from "../components/ShareCard";
+import CollaborationModal from "../components/CollaborationModal";
 import AdInlineBanner from "../components/AdInlineBanner";
+import AdNative from "../components/AdNative";
+
+type NoteFilter = "all" | "notes" | "sticky";
+
+const TYPE_OPTIONS: { key: NoteFilter; label: string; icon: string }[] = [
+  { key: "all", label: "All", icon: "layers-outline" },
+  { key: "sticky", label: "Sticky Notes", icon: "albums-outline" },
+  { key: "notes", label: "Simple Notes", icon: "document-text-outline" },
+];
+
+const CATEGORY_OPTIONS: { key: JotCategory | null; label: string; icon: string }[] = [
+  { key: null, label: "All", icon: "apps-outline" },
+  { key: "personal", label: "Personal Work", icon: "person-outline" },
+  { key: "work", label: "Work", icon: "briefcase-outline" },
+  { key: "ideas", label: "Ideas", icon: "bulb-outline" },
+  { key: "study", label: "Study", icon: "school-outline" },
+  { key: "shopping", label: "Shopping", icon: "cart-outline" },
+  { key: "quotes", label: "Quotes", icon: "chatbubble-outline" },
+  { key: "other", label: "Other", icon: "ellipsis-horizontal-outline" },
+];
 
 type SortOption = "newest" | "oldest" | "az" | "za" | "recently_updated" | "pinned_first";
 
@@ -37,17 +61,11 @@ const SORT_OPTIONS: { key: SortOption; label: string }[] = [
   { key: "pinned_first", label: "Pinned first" },
 ];
 
-const CATEGORY_FILTERS: { key: JotCategory | null; label: string }[] = [
-  { key: null, label: "All" },
-  ...CATEGORIES.map((c) => ({ key: c.key as JotCategory, label: c.label })),
-];
-
 interface HomeScreenProps {
   isDark: boolean;
   uid: string | null;
   isAnonymous: boolean;
   onRequireAuth: () => void;
-  onOpenSettings: () => void;
   onOpenPaywall: (trigger?: string) => void;
   sharedText?: string | null;
   onSharedTextConsumed?: () => void;
@@ -81,12 +99,12 @@ export default function HomeScreen({
   uid,
   isAnonymous,
   onRequireAuth,
-  onOpenSettings,
   onOpenPaywall,
   sharedText,
   onSharedTextConsumed,
 }: HomeScreenProps) {
   const {
+    jots,
     filteredJots,
     isLoading,
     createJot,
@@ -103,16 +121,19 @@ export default function HomeScreen({
     jotCount,
   } = useJot();
 
-  const { copyToClipboard, shareText, clipboardCheck } = useShare();
-  const { showNow: showInterstitialNow } = useInterstitialAd();
+  const { copyToClipboard, shareText } = useShare();
+  const { showNow: showInterstitialNow, maybeShowAfterAction } = useInterstitialAd();
   const { isReady: isRewardedReady, show: showRewardedAd } = useRewardedAd();
 
   const [refreshing, setRefreshing] = useState(false);
   const [sortMenuVisible, setSortMenuVisible] = useState(false);
+  const [categoryMenuVisible, setCategoryMenuVisible] = useState(false);
   const [editorVisible, setEditorVisible] = useState(false);
+  const [noteFilter, setNoteFilter] = useState<NoteFilter>("all");
   const [editingJot, setEditingJot] = useState<Jot | null>(null);
-  const [clipboardText, setClipboardText] = useState<string | null>(null);
   const [shareJot, setShareJot] = useState<Jot | null>(null);
+  const [inviteJot, setInviteJot] = useState<Jot | null>(null);
+  const [confirmDeleteJot, setConfirmDeleteJot] = useState<Jot | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastType, setToastType] = useState<"saved" | "deleted" | "copied">("saved");
   const [undoDelete, setUndoDelete] = useState<{ jot: Jot; timeout: ReturnType<typeof setTimeout> } | null>(null);
@@ -121,15 +142,6 @@ export default function HomeScreen({
 
   const toastAnim = useRef(new Animated.Value(0)).current;
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!uid || isAnonymous) return;
-    clipboardCheck().then((text) => {
-      if (text && text.trim().length > 10) {
-        setClipboardText(text.trim());
-      }
-    });
-  }, [uid, isAnonymous]);
 
   useEffect(() => {
     if (sharedText && sharedText.trim().length > 0) {
@@ -168,6 +180,8 @@ export default function HomeScreen({
 
   const pinnedJots = useMemo(() => filteredJots.filter((j) => j.isPinned), [filteredJots]);
   const unpinnedJots = useMemo(() => filteredJots.filter((j) => !j.isPinned), [filteredJots]);
+  const wallJots = useMemo(() => unpinnedJots.filter((j) => !!j.isNote), [unpinnedJots]);
+  const regularJots = useMemo(() => unpinnedJots.filter((j) => !j.isNote), [unpinnedJots]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -183,7 +197,7 @@ export default function HomeScreen({
     if (!canCreateJot(jotCount) && rewardedBonusRemaining <= 0) {
       Alert.alert(
         "Limit Reached",
-        `You've reached the ${FREE_JOT_LIMIT} Jot limit. Upgrade to Pro for unlimited, or watch a short ad to save one more.`,
+        `You've reached the ${FREE_JOT_LIMIT} Nota limit. Upgrade to Pro for unlimited, or watch a short ad to save one more.`,
         [
           { text: "Maybe Later", style: "cancel" },
           { text: "Upgrade to Pro", onPress: () => onOpenPaywall("limit") },
@@ -224,13 +238,20 @@ export default function HomeScreen({
   );
 
   const handleEditorSave = useCallback(
-    async (headline: string, body: string, tags: string[], category: JotCategory) => {
+    async (
+      headline: string,
+      body: string,
+      tags: string[],
+      category: JotCategory,
+      isNote: boolean,
+      noteColor: StickyNoteColor
+    ) => {
       if (!uid || isAnonymous) {
         onRequireAuth();
         return;
       }
       if (editingJot) {
-        await editJot(editingJot.id, { headline, body, tags, category });
+        await editJot(editingJot.id, { headline, body, tags, category, isNote, noteColor });
         showToast("Saved", "saved");
       } else {
         if (!canCreateJot(jotCount) && rewardedBonusRemaining <= 0) {
@@ -240,31 +261,58 @@ export default function HomeScreen({
         if (!canCreateJot(jotCount) && rewardedBonusRemaining > 0) {
           setRewardedBonusRemaining((prev) => prev - 1);
         }
-        await createJot(body, { headline, tags, category });
+        await createJot(body, { headline, tags, category, isNote, noteColor });
         showToast("Saved", "saved");
       }
       setEditorVisible(false);
       setEditingJot(null);
       setInitialSharedBody(null);
+      if (!checkIsPro()) {
+        setTimeout(() => maybeShowAfterAction(), 600);
+      }
     },
     [
       editingJot, uid, isAnonymous, jotCount, rewardedBonusRemaining, onRequireAuth, onOpenPaywall,
-      editJot, createJot, showToast,
+      editJot, createJot, showToast, maybeShowAfterAction,
     ]
   );
 
   const handleCopy = useCallback(
     async (jot: Jot) => {
       const text = jot.headline ? `${jot.headline}\n\n${jot.body}` : jot.body;
-      const success = await copyToClipboard(text);
-      if (success) showToast("Copied", "copied");
+      const brandedText = checkIsPro() ? text : `${text}\n\n— Made with Nota`;
+      const success = await copyToClipboard(brandedText);
+      if (success) {
+        showToast("Copied", "copied");
+        await trackFirstCopy();
+        if (!checkIsPro()) {
+          setTimeout(() => maybeShowAfterAction(), 600);
+        }
+      }
     },
-    [copyToClipboard, showToast]
+    [copyToClipboard, showToast, maybeShowAfterAction]
   );
 
   const handleShare = useCallback((jot: Jot) => {
     setShareJot(jot);
   }, []);
+
+  const handleInvite = useCallback((jot: Jot) => {
+    setInviteJot(jot);
+  }, []);
+
+  const handleInviteSave = useCallback(
+    async (collaborators: string[]) => {
+      if (!inviteJot) return;
+      await editJot(inviteJot.id, { collaborators });
+      setInviteJot(null);
+      showToast("Collaborators updated", "saved");
+      if (!checkIsPro()) {
+        setTimeout(() => maybeShowAfterAction(), 600);
+      }
+    },
+    [inviteJot, editJot, showToast, maybeShowAfterAction]
+  );
 
   const handleDelete = useCallback(
     (jot: Jot) => {
@@ -272,25 +320,27 @@ export default function HomeScreen({
         onRequireAuth();
         return;
       }
-      Alert.alert("Delete Jot", `Delete "${jot.headline || "Untitled"}"?`, [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            await deleteJot(jot.id);
-            showToast("Deleted", "deleted");
-            const timeout = setTimeout(() => setUndoDelete(null), 5000);
-            setUndoDelete({ jot, timeout });
-            if (!checkIsPro()) {
-              setTimeout(() => showInterstitialNow(), 500);
-            }
-          },
-        },
-      ]);
+      setConfirmDeleteJot(jot);
     },
-    [uid, isAnonymous, deleteJot, showToast, onRequireAuth]
+    [uid, isAnonymous, onRequireAuth]
   );
+
+  const confirmDelete = useCallback(async () => {
+    const jot = confirmDeleteJot;
+    setConfirmDeleteJot(null);
+    if (!jot) return;
+    const ok = await deleteJot(jot.id);
+    if (ok) {
+      showToast("Deleted", "deleted");
+      const timeout = setTimeout(() => setUndoDelete(null), 5000);
+      setUndoDelete({ jot, timeout });
+      if (!checkIsPro()) {
+        setTimeout(() => showInterstitialNow(), 500);
+      }
+    } else {
+      showToast("Couldn't delete note", "deleted");
+    }
+  }, [confirmDeleteJot, deleteJot, showToast, showInterstitialNow]);
 
   const handleUndoDelete = useCallback(async () => {
     if (!undoDelete) return;
@@ -299,6 +349,8 @@ export default function HomeScreen({
       headline: undoDelete.jot.headline,
       tags: undoDelete.jot.tags,
       category: undoDelete.jot.category,
+      isNote: undoDelete.jot.isNote,
+      noteColor: undoDelete.jot.noteColor,
     });
     setUndoDelete(null);
     showToast("Restored", "saved");
@@ -307,85 +359,77 @@ export default function HomeScreen({
   const handlePin = useCallback(
     async (jot: Jot) => {
       await togglePin(jot.id);
+      if (!checkIsPro()) {
+        setTimeout(() => maybeShowAfterAction(), 600);
+      }
     },
-    [togglePin]
+    [togglePin, maybeShowAfterAction]
   );
 
-  const handlePasteFromClipboard = useCallback(() => {
-    if (!uid || isAnonymous) {
-      onRequireAuth();
-      return;
-    }
-    if (!clipboardText) return;
-    setEditorVisible(true);
-    setEditingJot(null);
-    setTimeout(() => {
-      setClipboardText(null);
-    }, 500);
-  }, [clipboardText, uid, isAnonymous, onRequireAuth]);
+  const notes = useMemo(() => {
+    let base = filteredJots;
+    if (noteFilter === "sticky") base = base.filter((j) => !!j.isNote);
+    else if (noteFilter === "notes") base = base.filter((j) => !j.isNote);
+    return base.filter((j) => !j.isPinned);
+  }, [filteredJots, noteFilter]);
 
-  const adListData = useMemo(() => {
-    if (checkIsPro() || unpinnedJots.length === 0) return [];
-    const items: { type: "jot" | "ad"; jot?: Jot; adId?: string }[] = [];
-    let adCounter = 0;
-    unpinnedJots.forEach((jot, index) => {
-      items.push({ type: "jot", jot });
-      if ((index + 1) % 3 === 0 && index < unpinnedJots.length - 1) {
-        adCounter++;
-        items.push({ type: "ad", adId: `ad-${adCounter}` });
+  type GridRow =
+    | { key: string; type: "notes"; notes: Jot[] }
+    | { key: string; type: "ad" };
+
+  const showInlineAds = !checkIsPro() && noteFilter !== "sticky";
+
+  const gridRows = useMemo<GridRow[]>(() => {
+    const rows: GridRow[] = [];
+    for (let i = 0; i < notes.length; i += 2) {
+      const seg = notes.slice(i, i + 2);
+      rows.push({ key: `note-${i}`, type: "notes", notes: seg });
+      if (showInlineAds && i + 2 < notes.length) {
+        rows.push({ key: `ad-${i}`, type: "ad" });
       }
-    });
-    return items;
-  }, [unpinnedJots]);
+    }
+    return rows;
+  }, [notes, showInlineAds]);
+
+  const renderNoteCard = useCallback(
+    (jot: Jot) => (
+      <JotCard
+        jot={jot}
+        isDark={isDark}
+        onPress={() => handleEditJot(jot)}
+        onCopy={() => handleCopy(jot)}
+        onShare={() => handleShare(jot)}
+        onInvite={() => handleInvite(jot)}
+        onPin={() => handlePin(jot)}
+        onEdit={() => handleEditJot(jot)}
+        onDelete={() => handleDelete(jot)}
+      />
+    ),
+    [isDark, handleEditJot, handleCopy, handleShare, handleInvite, handlePin, handleDelete]
+  );
+
+  const renderStickyNoteCard = useCallback(
+    (jot: Jot) => (
+      <StickyNoteCard
+        jot={jot}
+        isDark={isDark}
+        onPress={() => handleEditJot(jot)}
+        onCopy={() => handleCopy(jot)}
+        onShare={() => handleShare(jot)}
+        onInvite={() => handleInvite(jot)}
+        onPin={() => handlePin(jot)}
+        onEdit={() => handleEditJot(jot)}
+        onDelete={() => handleDelete(jot)}
+      />
+    ),
+    [isDark, handleEditJot, handleCopy, handleShare, handleInvite, handlePin, handleDelete]
+  );
 
   const limitApproaching = jotCount > 40 && jotCount < FREE_JOT_LIMIT && !checkIsPro();
 
   const listHeader = useMemo(() => (
     <View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.categoryScroll}
-        style={styles.categoryRow}
-      >
-        {CATEGORY_FILTERS.map((cat) => {
-          const isActive = selectedCategory === cat.key;
-          return (
-            <Pressable
-              key={cat.key ?? "all"}
-              style={[
-                styles.categoryPill,
-                {
-                  backgroundColor: isActive ? Colors.accent : isDark ? Colors.dark.card : Colors.light.input,
-                  borderColor: isActive ? Colors.accent : isDark ? Colors.dark.border : Colors.light.border,
-                },
-              ]}
-              onPress={() => setSelectedCategory(cat.key)}
-            >
-              <Text
-                style={[
-                  styles.categoryPillText,
-                  { color: isActive ? Colors.onAccent : isDark ? Colors.dark.textSecondary : Colors.light.textSecondary },
-                ]}
-              >
-                {cat.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
-      {clipboardText && (
-        <View style={[styles.clipboardCard, { backgroundColor: isDark ? Colors.dark.card : Colors.light.input, borderColor: isDark ? Colors.dark.border : Colors.light.border }]}>
-          <Ionicons name="clipboard-outline" size={18} color={isDark ? Colors.dark.accentText : Colors.light.accentText} />
-          <Text style={[styles.clipboardText, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]} numberOfLines={1}>
-            Paste from clipboard
-          </Text>
-          <Pressable onPress={handlePasteFromClipboard} style={styles.clipboardBtn}>
-            <Text style={styles.clipboardBtnText}>Paste</Text>
-          </Pressable>
-        </View>
-      )}
+      {noteFilter !== "sticky" && !checkIsPro() && <AdNative isDark={isDark} />}
 
       {pinnedJots.length > 0 && (
         <View>
@@ -397,25 +441,34 @@ export default function HomeScreen({
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.pinnedScroll}
           >
-            {pinnedJots.map((jot) => (
-              <Pressable
-                key={jot.id}
-                style={[
-                  styles.pinnedCard,
-                  { backgroundColor: isDark ? Colors.dark.card : Colors.light.card, borderColor: isDark ? Colors.dark.border : Colors.light.border },
-                ]}
-                onPress={() => handleEditJot(jot)}
-                onLongPress={() => handleDelete(jot)}
-              >
-                <Text style={[styles.pinnedHeadline, { color: isDark ? Colors.dark.text : Colors.light.text }]} numberOfLines={2}>
-                  {jot.headline || "Untitled"}
-                </Text>
-                <Text style={[styles.pinnedBody, { color: isDark ? Colors.dark.textMuted : Colors.light.textMuted }]} numberOfLines={2}>
-                  {jot.body}
-                </Text>
-                <Text style={[styles.pinnedTime, { color: isDark ? Colors.dark.accentText : Colors.light.accentText }]}>{getRelativeTime(jot.updatedAt || jot.createdAt)}</Text>
-              </Pressable>
-            ))}
+            {pinnedJots.map((jot) => {
+              const notePalette = jot.isNote
+                ? STICKY_NOTE_COLORS[jot.noteColor || DEFAULT_NOTE_COLOR]
+                : null;
+              const paperColor = notePalette ? notePalette.paper : isDark ? Colors.dark.card : Colors.light.card;
+              const borderColor = notePalette ? "rgba(0,0,0,0.08)" : isDark ? Colors.dark.border : Colors.light.border;
+              const inkColor = notePalette ? notePalette.ink : isDark ? Colors.dark.text : Colors.light.text;
+              const mutedInkColor = notePalette ? "rgba(0,0,0,0.55)" : isDark ? Colors.dark.textMuted : Colors.light.textMuted;
+              return (
+                <Pressable
+                  key={jot.id}
+                  style={[
+                    styles.pinnedCard,
+                    { backgroundColor: paperColor, borderColor },
+                  ]}
+                  onPress={() => handleEditJot(jot)}
+                  onLongPress={() => handleDelete(jot)}
+                >
+                  <Text style={[styles.pinnedHeadline, { color: inkColor }]} numberOfLines={2}>
+                    {jot.headline || "Untitled"}
+                  </Text>
+                  <Text style={[styles.pinnedBody, { color: mutedInkColor }]} numberOfLines={2}>
+                    {jot.body}
+                  </Text>
+                  <Text style={[styles.pinnedTime, { color: notePalette ? "rgba(0,0,0,0.5)" : isDark ? Colors.dark.accentText : Colors.light.accentText }]}>{getRelativeTime(jot.updatedAt || jot.createdAt)}</Text>
+                </Pressable>
+              );
+            })}
           </ScrollView>
         </View>
       )}
@@ -450,9 +503,35 @@ export default function HomeScreen({
         </View>
       )}
     </View>
-  ), [selectedCategory, clipboardText, pinnedJots, sortMenuVisible, sortOption, isDark, handlePasteFromClipboard, handleEditJot, handleDelete, setSelectedCategory, setSortOption]);
+  ), [pinnedJots, sortMenuVisible, sortOption, isDark, handleEditJot, handleDelete, setSortOption, noteFilter, unpinnedJots.length]);
 
   const emptyState = useMemo(() => {
+    if (noteFilter === "sticky" && wallJots.length === 0 && !searchQuery) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="albums-outline" size={48} color={isDark ? Colors.dark.textMuted : Colors.light.textMuted} />
+          <Text style={[styles.emptyTitle, { color: isDark ? Colors.dark.text : Colors.light.text }]}>
+            No sticky notes yet
+          </Text>
+          <Text style={[styles.emptySubtitle, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]}>
+            Sticky notes are colorful, glanceable notes. Tap + and choose the Sticky note type to create one.
+          </Text>
+        </View>
+      );
+    }
+    if (noteFilter === "notes" && regularJots.length === 0 && wallJots.length > 0 && !searchQuery) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="document-text-outline" size={48} color={isDark ? Colors.dark.textMuted : Colors.light.textMuted} />
+          <Text style={[styles.emptyTitle, { color: isDark ? Colors.dark.text : Colors.light.text }]}>
+            No regular notes yet
+          </Text>
+          <Text style={[styles.emptySubtitle, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]}>
+            You have sticky notes but no regular notas. Save a text note to see it here.
+          </Text>
+        </View>
+      );
+    }
     if (searchQuery) {
       return (
         <View style={styles.emptyContainer}>
@@ -467,7 +546,7 @@ export default function HomeScreen({
       <View style={styles.emptyContainer}>
         <Ionicons name="document-text-outline" size={48} color={isDark ? Colors.dark.textMuted : Colors.light.textMuted} />
         <Text style={[styles.emptyTitle, { color: isDark ? Colors.dark.text : Colors.light.text }]}>
-          Your Jots will appear here
+          {noteFilter === "sticky" ? "No sticky notes yet" : "Your Notas will appear here"}
         </Text>
         {EXAMPLE_JOTS.map((ex, i) => (
           <View
@@ -478,9 +557,10 @@ export default function HomeScreen({
             <Text style={[styles.exampleBody, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]} numberOfLines={2}>{ex.body}</Text>
           </View>
         ))}
+        {!checkIsPro() && <AdInlineBanner isDark={isDark} />}
       </View>
     );
-  }, [searchQuery, isDark]);
+  }, [searchQuery, isDark, noteFilter, wallJots.length, regularJots.length]);
 
   if (isLoading) {
     return (
@@ -491,22 +571,16 @@ export default function HomeScreen({
   }
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: isDark ? Colors.dark.bg : Colors.light.bg }]}>
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: isDark ? Colors.dark.bg : Colors.light.bg }]}
+      edges={["bottom"]}
+    >
       <View style={[styles.container, { backgroundColor: isDark ? Colors.dark.bg : Colors.light.bg }]}>
-        <View style={[styles.header, { borderBottomColor: isDark ? Colors.dark.border : Colors.light.border }]}>
-          <Text style={[styles.logo, { color: isDark ? Colors.dark.text : Colors.light.text }]}>Jot</Text>
-          <View style={styles.headerActions}>
-            <Pressable onPress={onOpenSettings} style={styles.headerBtn}>
-              <Ionicons name="settings-outline" size={22} color={isDark ? Colors.dark.textSecondary : Colors.light.textSecondary} />
-            </Pressable>
-          </View>
-        </View>
-
         <View style={[styles.searchRow, { backgroundColor: isDark ? Colors.dark.card : Colors.light.input, borderColor: isDark ? Colors.dark.border : Colors.light.border }]}>
           <Ionicons name="search" size={16} color={isDark ? Colors.dark.textMuted : Colors.light.textMuted} />
           <TextInput
             style={[styles.searchInput, { color: isDark ? Colors.dark.text : Colors.light.text }]}
-            placeholder="Search jots..."
+            placeholder="Search notas..."
             placeholderTextColor={isDark ? Colors.dark.textMuted : Colors.light.textMuted}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -514,43 +588,141 @@ export default function HomeScreen({
             blurOnSubmit={false}
           />
           {searchQuery.length > 0 && (
-            <Pressable onPress={() => setSearchQuery("")} hitSlop={8}>
+            <Pressable onPress={() => setSearchQuery("")} hitSlop={10} accessibilityRole="button" accessibilityLabel="Clear search">
               <Ionicons name="close-circle" size={18} color={isDark ? Colors.dark.textMuted : Colors.light.textMuted} />
             </Pressable>
           )}
           <Pressable
             onPress={() => setSortMenuVisible(!sortMenuVisible)}
-            hitSlop={8}
+            hitSlop={10}
             style={styles.sortToggleBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Sort jots"
+            accessibilityState={{ expanded: sortMenuVisible }}
           >
             <Ionicons name="swap-vertical" size={16} color={isDark ? Colors.dark.textSecondary : Colors.light.textSecondary} />
           </Pressable>
         </View>
 
+        <View style={styles.statsRow}>
+          <View
+            style={[styles.statCard, { backgroundColor: isDark ? Colors.dark.card : Colors.light.card, borderColor: isDark ? Colors.dark.border : Colors.light.border }]}
+          >
+            <Ionicons name="document-text-outline" size={16} color={isDark ? Colors.dark.accentText : Colors.light.accentText} />
+            <View style={styles.statBody}>
+              <Text style={[styles.statValue, { color: isDark ? Colors.dark.text : Colors.light.text }]}>{jots.length}</Text>
+              <Text style={[styles.statLabel, { color: isDark ? Colors.dark.textMuted : Colors.light.textMuted }]}>Total Notes</Text>
+            </View>
+          </View>
+          <View
+            style={[styles.statCard, { backgroundColor: isDark ? Colors.dark.card : Colors.light.card, borderColor: isDark ? Colors.dark.border : Colors.light.border }]}
+          >
+            <Ionicons name="albums-outline" size={16} color={isDark ? Colors.dark.accentText : Colors.light.accentText} />
+            <View style={styles.statBody}>
+              <Text style={[styles.statValue, { color: isDark ? Colors.dark.text : Colors.light.text }]}>{jots.filter((j) => !!j.isNote).length}</Text>
+              <Text style={[styles.statLabel, { color: isDark ? Colors.dark.textMuted : Colors.light.textMuted }]}>Sticky Notes</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.chipsRow}>
+          {TYPE_OPTIONS.map((opt) => {
+            const isActive = noteFilter === opt.key;
+            return (
+              <Pressable
+                key={opt.key}
+                style={[
+                  styles.chip,
+                  isActive ? { backgroundColor: Colors.accent, borderColor: Colors.accent } : { backgroundColor: isDark ? Colors.dark.card : Colors.light.card, borderColor: isDark ? Colors.dark.border : Colors.light.border },
+                ]}
+                onPress={() => {
+                  setNoteFilter(opt.key);
+                  setCategoryMenuVisible(false);
+                  setSortMenuVisible(false);
+                }}
+              >
+                <Ionicons name={opt.icon as any} size={13} color={isActive ? Colors.onAccent : isDark ? Colors.dark.textSecondary : Colors.light.textSecondary} />
+                <Text style={[styles.chipText, { color: isActive ? Colors.onAccent : isDark ? Colors.dark.text : Colors.light.text }]}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <View style={styles.categoryChipRow}>
+          <Pressable
+            style={[
+              styles.chip,
+              selectedCategory
+                ? { backgroundColor: Colors.accent, borderColor: Colors.accent }
+                : { backgroundColor: isDark ? Colors.dark.card : Colors.light.card, borderColor: isDark ? Colors.dark.border : Colors.light.border },
+            ]}
+            onPress={() => {
+              setCategoryMenuVisible((v) => !v);
+              setSortMenuVisible(false);
+            }}
+          >
+            <Ionicons name="folder-outline" size={13} color={selectedCategory ? Colors.onAccent : isDark ? Colors.dark.textSecondary : Colors.light.textSecondary} />
+            <Text style={[styles.chipText, { color: selectedCategory ? Colors.onAccent : isDark ? Colors.dark.textMuted : Colors.light.textMuted }]}>Category</Text>
+            <Text style={[styles.chipValueText, { color: isDark ? Colors.dark.text : Colors.light.text }]} numberOfLines={1}>
+              {CATEGORY_OPTIONS.find((o) => o.key === selectedCategory)?.label ?? "All"}
+            </Text>
+            <Ionicons name="chevron-down" size={12} color={selectedCategory ? Colors.onAccent : isDark ? Colors.dark.textMuted : Colors.light.textMuted} />
+          </Pressable>
+        </View>
+
+        {categoryMenuVisible && (
+          <View style={[styles.filterMenu, { backgroundColor: isDark ? Colors.dark.card : Colors.light.card, borderColor: isDark ? Colors.dark.border : Colors.light.border }]}>
+            {CATEGORY_OPTIONS.map((opt) => {
+              const isActive = (selectedCategory ?? null) === opt.key;
+              return (
+                <Pressable
+                  key={opt.key ?? "all"}
+                  style={[styles.filterMenuItem, isActive && { backgroundColor: isDark ? Colors.dark.accentLight : Colors.light.accentLight }]}
+                  onPress={() => {
+                    setSelectedCategory(opt.key);
+                    setCategoryMenuVisible(false);
+                  }}
+                >
+                  <Ionicons name={opt.icon as any} size={16} color={isActive ? Colors.accent : isDark ? Colors.dark.textSecondary : Colors.light.textSecondary} />
+                  <Text style={[styles.filterMenuItemText, { color: isActive ? Colors.accent : isDark ? Colors.dark.text : Colors.light.text }]}>
+                    {opt.label}
+                  </Text>
+                  {isActive && <Ionicons name="checkmark" size={16} color={Colors.accent} />}
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+
         <FlatList
-          data={adListData}
-          keyExtractor={(item) => {
-            if (item.type === "ad") return item.adId!;
-            return item.jot!.id;
-          }}
+          key={`${noteFilter}-${selectedCategory || "all"}`}
+          data={gridRows}
+          keyExtractor={(row: GridRow) => row.key}
           ListHeaderComponent={listHeader}
           ListEmptyComponent={emptyState}
           renderItem={({ item }) => {
             if (item.type === "ad") {
-              return <AdInlineBanner isDark={isDark} />;
+              return (
+                <View style={styles.adRow}>
+                  <AdInlineBanner key={item.key} isDark={isDark} />
+                </View>
+              );
             }
-            const jot = item.jot!;
+            const first = item.notes[0];
+            const second = item.notes[1];
             return (
-              <JotCard
-                jot={jot}
-                isDark={isDark}
-                onPress={() => handleEditJot(jot)}
-                onCopy={() => handleCopy(jot)}
-                onShare={() => handleShare(jot)}
-                onPin={() => handlePin(jot)}
-                onEdit={() => handleEditJot(jot)}
-                onDelete={() => handleDelete(jot)}
-              />
+              <View style={styles.noteRow}>
+                <View style={styles.wallCell}>
+                  {first.isNote ? renderStickyNoteCard(first) : renderNoteCard(first)}
+                </View>
+                {second && (
+                  <View style={styles.wallCell}>
+                    {second.isNote ? renderStickyNoteCard(second) : renderNoteCard(second)}
+                  </View>
+                )}
+              </View>
             );
           }}
           contentContainerStyle={styles.listContent}
@@ -568,7 +740,7 @@ export default function HomeScreen({
 
         {limitApproaching && (
           <Text style={[styles.limitText, { color: isDark ? Colors.dark.textMuted : Colors.light.textMuted }]}>
-            {jotCount} of {FREE_JOT_LIMIT} Jots
+            {jotCount} of {FREE_JOT_LIMIT} Notas
           </Text>
         )}
 
@@ -582,7 +754,7 @@ export default function HomeScreen({
           isPro={checkIsPro()}
           onOpenPaywall={onOpenPaywall}
           editJot={editingJot}
-          initialText={!editingJot ? initialSharedBody ?? clipboardText ?? undefined : undefined}
+          initialText={!editingJot ? initialSharedBody ?? undefined : undefined}
           onSave={handleEditorSave}
           onClose={() => {
             setEditorVisible(false);
@@ -598,8 +770,11 @@ export default function HomeScreen({
             isPro={checkIsPro()}
             onOpenPaywall={onOpenPaywall}
             onShareText={async () => {
+              trackEvent({ event: "share_started", params: { type: "text" } });
               const text = shareJot.headline ? `${shareJot.headline}\n\n${shareJot.body}` : shareJot.body;
-              await shareText(text, shareJot.headline || "Shared from Jot");
+              await shareText(text, shareJot.headline || "Shared from Nota");
+              trackEvent({ event: "share_completed", params: { type: "text" } });
+              await trackFirstShare();
               setShareJot(null);
             }}
             onShareImage={async () => {
@@ -611,6 +786,53 @@ export default function HomeScreen({
             }}
             onClose={() => setShareJot(null)}
           />
+        )}
+
+        {inviteJot && (
+          <CollaborationModal
+            jot={inviteJot}
+            isDark={isDark}
+            onSave={handleInviteSave}
+            onClose={() => setInviteJot(null)}
+            isPro={checkIsPro()}
+          />
+        )}
+
+        {confirmDeleteJot && (
+          <Modal
+            transparent
+            visible
+            animationType="fade"
+            onRequestClose={() => setConfirmDeleteJot(null)}
+          >
+            <View style={styles.modalBackdrop}>
+              <View style={[styles.confirmCard, { backgroundColor: isDark ? Colors.dark.card : Colors.light.card }]}>
+                <View style={[styles.confirmIconCircle, { backgroundColor: isDark ? "rgba(220,38,38,0.15)" : "rgba(220,38,38,0.1)" }]}>
+                  <Ionicons name="trash-outline" size={26} color={Colors.danger} />
+                </View>
+                <Text style={[styles.confirmTitle, { color: isDark ? Colors.dark.text : Colors.light.text }]}>
+                  Delete this nota?
+                </Text>
+                <Text
+                  style={[styles.confirmMessage, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]}
+                  numberOfLines={3}
+                >
+                  "{confirmDeleteJot.headline || "Untitled"}" will be permanently deleted. This can't be undone.
+                </Text>
+                <View style={styles.confirmActions}>
+                  <Pressable
+                    style={[styles.confirmBtn, styles.confirmBtnCancel, { borderColor: isDark ? Colors.dark.border : Colors.light.border }]}
+                    onPress={() => setConfirmDeleteJot(null)}
+                  >
+                    <Text style={[styles.confirmBtnText, { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary }]}>Cancel</Text>
+                  </Pressable>
+                  <Pressable style={[styles.confirmBtn, { backgroundColor: Colors.danger }]} onPress={confirmDelete}>
+                    <Text style={[styles.confirmBtnText, styles.confirmBtnDeleteText]}>Delete</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </Modal>
         )}
 
         {toastMessage && (
@@ -654,26 +876,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  logo: {
-    fontFamily: FontFamily.display,
-    fontSize: FontSize.xxl,
-  },
-  headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-  },
-  headerBtn: {
-    padding: Spacing.sm,
-  },
   searchRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -694,48 +896,79 @@ const styles = StyleSheet.create({
   sortToggleBtn: {
     padding: Spacing.xs,
   },
-  categoryRow: {
-    flexGrow: 0,
-  },
-  categoryScroll: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
-    gap: Spacing.sm,
-  },
-  categoryPill: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-  },
-  categoryPillText: {
-    fontSize: FontSize.sm,
-    fontWeight: "500",
-  },
-  clipboardCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: Spacing.lg,
+  filterMenu: {
+    marginHorizontal: Spacing.md,
     marginTop: Spacing.xs,
-    padding: Spacing.md,
     borderRadius: BorderRadius.md,
     borderWidth: 1,
-    gap: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    ...Shadow.sm,
   },
-  clipboardText: {
+  filterMenuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm + 2,
+  },
+  filterMenuItemText: {
     flex: 1,
     fontSize: FontSize.md,
   },
-  clipboardBtn: {
-    backgroundColor: Colors.accent,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs + 2,
-    borderRadius: BorderRadius.full,
+  statsRow: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
   },
-  clipboardBtnText: {
-    color: Colors.onAccent,
-    fontSize: FontSize.sm,
+  statCard: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  statBody: {
+    flex: 1,
+  },
+  statValue: {
+    fontSize: FontSize.lg,
+    fontWeight: "700",
+    lineHeight: 20,
+  },
+  statLabel: {
+    fontSize: FontSize.xs,
+  },
+  chipsRow: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
+  },
+  chip: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.xs,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    height: 36,
+    paddingHorizontal: Spacing.sm,
+  },
+  chipText: {
+    fontSize: 12,
     fontWeight: "600",
+  },
+  chipValueText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  categoryChipRow: {
+    marginHorizontal: Spacing.lg,
   },
   sectionLabel: {
     fontSize: FontSize.xs,
@@ -791,6 +1024,17 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 120,
   },
+  noteRow: {
+    flexDirection: "row",
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  adRow: {
+    paddingHorizontal: Spacing.sm,
+  },
+  wallCell: {
+    flex: 1,
+  },
   emptyContainer: {
     alignItems: "center",
     paddingTop: Spacing.xxl,
@@ -802,6 +1046,12 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
     marginBottom: Spacing.lg,
     textAlign: "center",
+  },
+  emptySubtitle: {
+    fontSize: FontSize.md,
+    lineHeight: 20,
+    textAlign: "center",
+    marginBottom: Spacing.lg,
   },
   exampleCard: {
     width: "100%",
@@ -863,5 +1113,64 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontWeight: "800",
     textDecorationLine: "underline",
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: Spacing.xl,
+  },
+  confirmCard: {
+    width: "100%",
+    maxWidth: 340,
+    alignItems: "center",
+    borderRadius: BorderRadius.lg,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.xl,
+    ...Shadow.lg,
+  },
+  confirmIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.md,
+  },
+  confirmTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: Spacing.xs,
+  },
+  confirmMessage: {
+    fontSize: FontSize.md,
+    lineHeight: 20,
+    textAlign: "center",
+    marginBottom: Spacing.lg,
+  },
+  confirmActions: {
+    flexDirection: "row",
+    gap: Spacing.md,
+    width: "100%",
+  },
+  confirmBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: BorderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmBtnCancel: {
+    borderWidth: 1,
+  },
+  confirmBtnText: {
+    fontSize: FontSize.md,
+    fontWeight: "600",
+  },
+  confirmBtnDeleteText: {
+    color: "#fff",
+    fontWeight: "700",
   },
 });

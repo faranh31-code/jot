@@ -8,7 +8,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Jot, CATEGORY_COLORS, JotCategory } from '../types';
+import { Jot, CATEGORY_COLORS, CATEGORY_LABELS, JotCategory } from '../types';
 import { Colors, Spacing, FontSize, BorderRadius, Shadow, FontFamily } from '../constants/theme';
 
 interface JotCardProps {
@@ -17,6 +17,7 @@ interface JotCardProps {
   onPress: () => void;
   onCopy: () => void;
   onShare: () => void;
+  onInvite: () => void;
   onPin: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -46,6 +47,7 @@ export default function JotCard({
   onPress,
   onCopy,
   onShare,
+  onInvite,
   onPin,
   onEdit,
   onDelete,
@@ -57,22 +59,14 @@ export default function JotCard({
     const buttons = [
       { text: 'Copy', onPress: onCopy },
       { text: 'Share', onPress: onShare },
+      { text: 'Invite Collaboration', onPress: onInvite },
       { text: jot.isPinned ? 'Unpin' : 'Pin', onPress: onPin },
       { text: 'Edit', onPress: onEdit },
-      {
-        text: 'Delete',
-        style: 'destructive' as const,
-        onPress: () => {
-          Alert.alert('Delete Jot', 'Are you sure?', [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Delete', style: 'destructive', onPress: onDelete },
-          ]);
-        },
-      },
+      { text: 'Delete', style: 'destructive' as const, onPress: onDelete },
       { text: 'Cancel', style: 'cancel' as const, onPress: () => {} },
     ];
 
-    Alert.alert('Jot', jot.headline || 'Untitled', buttons);
+    Alert.alert('Nota', jot.headline || 'Untitled', buttons);
   };
 
   return (
@@ -92,22 +86,69 @@ export default function JotCard({
       <View style={[styles.categoryBar, { backgroundColor: categoryColor }]} />
 
       <View style={styles.content}>
-        <View style={styles.header}>
-          <Text
-            style={[styles.headline, { color: theme.text }]}
-            numberOfLines={1}
-          >
-            {jot.headline || 'Untitled'}
+        <View style={styles.categoryRow}>
+          <View style={[styles.categoryDot, { backgroundColor: categoryColor }]} />
+          <Text style={[styles.categoryLabel, { color: theme.textSecondary }]} numberOfLines={1}>
+            {CATEGORY_LABELS[jot.category]}
           </Text>
-          {jot.isPinned && (
-            <Ionicons
-              name="pin"
-              size={14}
-              color={theme.accentText}
-              style={styles.pinIcon}
-              accessibilityLabel="Pinned"
-            />
-          )}
+        </View>
+
+        <View style={styles.header}>
+          <View style={styles.titleRow}>
+            <Text
+              style={[styles.headline, { color: theme.text }]}
+              numberOfLines={3}
+            >
+              {jot.headline || 'Untitled'}
+            </Text>
+            {jot.isPinned && (
+              <Ionicons
+                name="pin"
+                size={14}
+                color={theme.accentText}
+                style={styles.pinIcon}
+                accessibilityLabel="Pinned"
+              />
+            )}
+            {jot.collaborators && jot.collaborators.length > 0 && (
+              <Ionicons
+                name="people"
+                size={13}
+                color={theme.textMuted}
+                style={styles.pinIcon}
+                accessibilityLabel={`${jot.collaborators.length} collaborators`}
+              />
+            )}
+          </View>
+          <View style={styles.actionsRow}>
+            <TouchableOpacity
+              onPress={onInvite}
+              hitSlop={8}
+              style={styles.iconBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Invite collaboration"
+            >
+              <Ionicons name="person-add-outline" size={14} color={theme.textMuted} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={onShare}
+              hitSlop={8}
+              style={styles.iconBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Share as image"
+            >
+              <Ionicons name="share-social-outline" size={14} color={theme.textMuted} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={onDelete}
+              hitSlop={8}
+              style={styles.deleteBtn}
+              accessibilityRole="button"
+              accessibilityLabel={`Delete ${jot.headline || 'Untitled'}`}
+            >
+              <Ionicons name="trash-outline" size={15} color={theme.textMuted} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <Text
@@ -150,8 +191,7 @@ export default function JotCard({
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    marginHorizontal: Spacing.md,
-    marginVertical: Spacing.xs,
+    marginBottom: Spacing.md,
     borderRadius: BorderRadius.md,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
@@ -161,26 +201,68 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: Spacing.md,
+    padding: Spacing.sm,
   },
-  header: {
+  categoryRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: Spacing.xs,
     marginBottom: Spacing.xs,
+  },
+  categoryDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.18)',
+  },
+  categoryLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+  },
+  header: {
+    marginBottom: Spacing.xs,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   headline: {
     flex: 1,
     fontFamily: FontFamily.display,
-    fontSize: FontSize.lg,
+    fontSize: FontSize.md,
+    lineHeight: 20,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    marginTop: Spacing.xs,
   },
   pinIcon: {
     marginLeft: Spacing.sm,
     transform: [{ rotate: '45deg' }],
   },
+  iconBtn: {
+    marginLeft: Spacing.xs,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteBtn: {
+    marginLeft: Spacing.xs,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   body: {
     fontFamily: FontFamily.sans,
-    fontSize: FontSize.md,
-    lineHeight: 20,
+    fontSize: FontSize.sm,
+    lineHeight: 18,
     marginBottom: Spacing.sm,
   },
   footer: {

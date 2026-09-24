@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { Colors, BorderRadius, Spacing, FontSize, FontFamily } from "../constants/theme";
 import {
   signUpWithEmail,
@@ -30,6 +31,7 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
   const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -42,6 +44,13 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
     setDisplayName("");
     setError("");
     setAcceptedTerms(false);
+    setShowPassword(false);
+  }
+
+  function switchMode(next: "signin" | "signup" | "forgot") {
+    setMode(next);
+    setError("");
+    setShowPassword(false);
   }
 
   function handleClose() {
@@ -107,6 +116,41 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
       >
         <Pressable style={styles.backdrop} onPress={handleClose} />
         <View style={[styles.container, { backgroundColor: bgColor, borderColor }]}>
+          <View style={[styles.tabs, { borderBottomColor: borderColor }]}>
+            <Pressable
+              style={[styles.tab, mode === "signin" && styles.tabActive]}
+              onPress={() => switchMode("signin")}
+              accessibilityRole="tab"
+              accessibilityState={mode === "signin" ? { selected: true } : { selected: false }}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  { color: mode === "signin" ? linkColor : mutedColor },
+                  mode === "signin" && styles.tabTextActive,
+                ]}
+              >
+                Sign In
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.tab, mode === "signup" && styles.tabActive]}
+              onPress={() => switchMode("signup")}
+              accessibilityRole="tab"
+              accessibilityState={mode === "signup" ? { selected: true } : { selected: false }}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  { color: mode === "signup" ? linkColor : mutedColor },
+                  mode === "signup" && styles.tabTextActive,
+                ]}
+              >
+                Sign Up
+              </Text>
+            </Pressable>
+          </View>
+
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <Text style={[styles.title, { color: textColor }]}>
               {mode === "signin" ? "Welcome Back" : mode === "signup" ? "Create Account" : "Reset Password"}
@@ -142,14 +186,41 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
             />
 
             {mode !== "forgot" && (
-              <TextInput
-                style={[styles.input, { backgroundColor: inputBg, color: textColor, borderColor }]}
-                placeholder="Password"
-                placeholderTextColor={placeholderColor}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-              />
+              <View style={[styles.passwordWrap, { backgroundColor: inputBg, borderColor }]}>
+                <TextInput
+                  style={[styles.passwordInput, { color: textColor }]}
+                  placeholder="Password"
+                  placeholderTextColor={placeholderColor}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                />
+                <Pressable
+                  onPress={() => setShowPassword((prev) => !prev)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? "Hide password" : "Show password"}
+                >
+                  <Ionicons
+                    name={showPassword ? "eye-off-outline" : "eye-outline"}
+                    size={20}
+                    color={mutedColor}
+                  />
+                </Pressable>
+              </View>
+            )}
+
+            {mode === "signin" && (
+              <Pressable
+                style={styles.forgotRow}
+                onPress={() => switchMode("forgot")}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel="Forgot password"
+              >
+                <Text style={[styles.forgotText, { color: linkColor }]}>Forgot Password?</Text>
+              </Pressable>
             )}
 
             {error ? <Text style={[styles.errorText, { color: Colors.danger }]}>{error}</Text> : null}
@@ -211,28 +282,15 @@ export default function AuthModal({ isVisible, isDark, onClose, onAuthSuccess }:
               )}
             </Pressable>
 
-            <View style={styles.switchMode}>
-              {mode === "signin" ? (
-                <>
-                  <Pressable onPress={() => { setMode("signup"); setError(""); }}>
-                    <Text style={[styles.switchText, { color: mutedColor }]}>
-                      Don't have an account? <Text style={[styles.switchLink, { color: linkColor }]}>Sign Up</Text>
-                    </Text>
-                  </Pressable>
-                  <Pressable onPress={() => { setMode("forgot"); setError(""); }}>
-                    <Text style={[styles.switchText, { color: mutedColor, marginTop: Spacing.sm }]}>
-                      Forgot password?
-                    </Text>
-                  </Pressable>
-                </>
-              ) : (
-                <Pressable onPress={() => { setMode("signin"); setError(""); }}>
+            {mode === "forgot" && (
+              <View style={styles.switchMode}>
+                <Pressable onPress={() => switchMode("signin")}>
                   <Text style={[styles.switchText, { color: mutedColor }]}>
-                    Already have an account? <Text style={[styles.switchLink, { color: linkColor }]}>Sign In</Text>
+                    Remembered it? <Text style={[styles.switchLink, { color: linkColor }]}>Back to Sign In</Text>
                   </Text>
                 </Pressable>
-              )}
-            </View>
+              </View>
+            )}
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
@@ -248,7 +306,7 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
   },
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.5)",
   },
   container: {
@@ -257,9 +315,31 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.xl,
+    paddingTop: Spacing.md,
     paddingBottom: Spacing.lg,
     maxHeight: "85%",
+  },
+  tabs: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    marginBottom: Spacing.lg,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    alignItems: "center",
+  },
+  tabActive: {
+    borderBottomWidth: 2,
+    borderBottomColor: Colors.accent,
+    marginBottom: -1,
+  },
+  tabText: {
+    fontSize: FontSize.lg,
+    fontWeight: "600",
+  },
+  tabTextActive: {
+    fontWeight: "700",
   },
   title: {
     fontFamily: FontFamily.display,
@@ -278,6 +358,28 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     fontSize: FontSize.md,
     marginBottom: Spacing.sm,
+  },
+  passwordWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    paddingLeft: Spacing.md,
+    paddingRight: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    fontSize: FontSize.md,
+  },
+  forgotRow: {
+    alignItems: "flex-end",
+    marginBottom: Spacing.sm,
+  },
+  forgotText: {
+    fontSize: FontSize.sm,
+    fontWeight: "700",
   },
   errorText: {
     fontSize: FontSize.sm,

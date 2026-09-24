@@ -7,7 +7,7 @@ type AnalyticsEvent =
   | { event: 'first_jot_saved' }
   | { event: 'first_copy' }
   | { event: 'first_share' }
-  | { event: 'jot_created'; params: { category: string; hasTags: boolean } }
+  | { event: 'jot_created'; params: { category: string; hasTags: boolean; isNote: boolean } }
   | { event: 'jot_edited'; params: { category: string } }
   | { event: 'jot_deleted' }
   | { event: 'jot_pinned' }
@@ -17,8 +17,10 @@ type AnalyticsEvent =
   | { event: 'share_completed'; params: { type: 'text' | 'image' } }
   | { event: 'jot_card_created'; params: { style: string } }
   | { event: 'referral_link_created' }
-  | { event: 'referral_signup' }
-  | { event: 'referral_activation' }
+  | { event: 'referral_signup'; params: { code: string } }
+  | { event: 'referral_activation'; params: { kind?: string } }
+  | { event: 'display_name_updated' }
+  | { event: 'password_updated' }
   | {
       event: 'paywall_viewed';
       params: { trigger: 'limit' | 'pro_feature' | 'jot_card_style' | 'branding' | string };
@@ -35,7 +37,9 @@ type AnalyticsEvent =
   | { event: 'return_session'; params: { daysSinceInstall: number } }
   | { event: 'app_open_ad_shown' }
   | { event: 'interstitial_ad_shown' }
-  | { event: 'banner_ad_loaded' };
+  | { event: 'rewarded_interstitial_ad_shown' }
+  | { event: 'banner_ad_loaded' }
+  | { event: 'native_ad_loaded' };
 
 const EVENT_LOG_KEY = 'jotapp_analytics_log';
 const MAX_EVENTS = 500;
@@ -70,6 +74,15 @@ export const getEventLog = () => [..._events];
 export const startSession = () => {
   _sessionStart = Date.now();
   trackEvent({ event: 'session', params: { duration: 0 } });
+};
+
+export const trackFirstOpen = async () => {
+  const hasOpened = await storageGet('jotapp_has_opened');
+  if (!hasOpened) {
+    await storageSet('jotapp_has_opened', 'true');
+    trackEvent({ event: 'install' });
+    trackEvent({ event: 'first_open' });
+  }
 };
 
 export const endSession = () => {

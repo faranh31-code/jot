@@ -49,3 +49,6 @@ _setup_creds.bat
 _setup_creds.js
 _setup_creds_pty.js
 _submit_ios.js
+
+# leftover asset archive
+assets/files.zip

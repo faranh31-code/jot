@@ -5,14 +5,15 @@ import { FREE_JOT_LIMIT } from '../types';
 let Purchases: any = null;
 let _purchasesReady = false;
 
-const REVENUECAT_API_KEY_IOS = 'REPLACE_WITH_YOUR_REVENUECAT_IOS_API_KEY';
-const REVENUECAT_API_KEY_ANDROID = 'REPLACE_WITH_YOUR_REVENUECAT_ANDROID_API_KEY';
+const REVENUECAT_API_KEY_IOS = 'appl_domEJJjtYWUBNLiMEpKpVPIRhLW';
+const REVENUECAT_API_KEY_ANDROID = 'goog_OCuxlMUseJWHiEaRlqUsTCPMjfP';
+const REVENUECAT_TEST_STORE_KEY = 'test_SQJbbUHhgbKfDUamfFcPQnYtCNN';
 
 const ENTITLEMENT_ID = 'pro';
 
 export interface SubscriptionStatus {
   isPro: boolean;
-  plan: 'free' | 'pro_monthly' | 'pro_annual' | 'pro_lifetime';
+  plan: 'free' | 'pro_monthly' | 'pro_annual' | 'pro_lifetime' | 'pro_referral';
   expiresAt: number | null;
   willRenew: boolean;
 }
@@ -36,7 +37,14 @@ async function loadPurchases() {
   if (_purchasesReady) return;
   try {
     Purchases = require('react-native-purchases').default;
-    const apiKey = Platform.OS === 'ios' ? REVENUECAT_API_KEY_IOS : REVENUECAT_API_KEY_ANDROID;
+    const isExpoGo =
+      typeof globalThis !== 'undefined' &&
+      (globalThis as any).expo?.modules?.ExponentConstants?.appOwnership === 'expo';
+    const apiKey = isExpoGo
+      ? REVENUECAT_TEST_STORE_KEY
+      : Platform.OS === 'ios'
+      ? REVENUECAT_API_KEY_IOS
+      : REVENUECAT_API_KEY_ANDROID;
     if (apiKey.startsWith('REPLACE')) {
       console.log('[Subscription] RevenueCat API key not configured, using local fallback');
       return;

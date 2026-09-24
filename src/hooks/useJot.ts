@@ -9,11 +9,12 @@ import {
   toggleFavoriteJot,
   onAuthStateChanged,
 } from "../services/firebase";
-import { SortOption, JotCategory } from "../types";
+import { SortOption, JotCategory, StickyNoteColor } from "../types";
+import { trackEvent, trackFirstJot } from "../services/analytics";
 
 function detectHeadline(body: string): string {
   const firstLine = body.split("\n")[0]?.trim();
-  if (!firstLine) return "Untitled Jot";
+  if (!firstLine) return "Untitled";
   if (firstLine.length <= 60) return firstLine;
   return firstLine.substring(0, 57) + "...";
 }
@@ -75,7 +76,7 @@ export function useJot() {
   const [jots, setJots] = useState<Jot[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortOption, setSortOption] = useState<SortOption>("pinned_first");
+  const [sortOption, setSortOption] = useState<SortOption>("newest");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<JotCategory | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -110,15 +111,32 @@ export function useJot() {
   const createJot = useCallback(
     async (
       body: string,
-      options?: { headline?: string; tags?: string[]; category?: JotCategory }
+      options?: {
+        headline?: string;
+        tags?: string[];
+        category?: JotCategory;
+        isNote?: boolean;
+        noteColor?: StickyNoteColor;
+      }
     ): Promise<Jot | null> => {
       const headline = options?.headline || detectHeadline(body);
       const jot = await addJot(headline, body, {
         tags: options?.tags,
         category: options?.category,
+        isNote: options?.isNote,
+        noteColor: options?.noteColor,
       });
       if (jot) {
         setJots((prev) => [jot, ...prev]);
+        trackEvent({
+          event: "jot_created",
+          params: {
+            category: jot.category || "other",
+            hasTags: (jot.tags || []).length > 0,
+            isNote: jot.isNote ?? false,
+          },
+        });
+        await trackFirstJot();
       }
       return jot;
     },
@@ -128,7 +146,15 @@ export function useJot() {
   const editJot = useCallback(
     async (
       id: string,
-      updates: { headline?: string; body?: string; tags?: string[]; category?: JotCategory }
+      updates: {
+        headline?: string;
+        body?: string;
+        tags?: string[];
+        category?: JotCategory;
+        isNote?: boolean;
+        noteColor?: StickyNoteColor;
+        collaborators?: string[];
+      }
     ): Promise<boolean> => {
       const success = await updateJot(id, updates);
       if (success) {
@@ -137,6 +163,10 @@ export function useJot() {
             j.id === id ? { ...j, ...updates, updatedAt: Date.now() } : j
           )
         );
+        trackEvent({
+          event: "jot_edited",
+          params: { category: updates.category || "other" },
+        });
       }
       return success;
     },
@@ -148,6 +178,7 @@ export function useJot() {
       const success = await deleteJot(id);
       if (success) {
         setJots((prev) => prev.filter((j) => j.id !== id));
+        trackEvent({ event: "jot_deleted" });
       }
       return success;
     },
@@ -163,6 +194,7 @@ export function useJot() {
             j.id === id ? { ...j, isPinned: !j.isPinned, updatedAt: Date.now() } : j
           )
         );
+        trackEvent({ event: "jot_pinned" });
       }
       return success;
     },
@@ -198,6 +230,7 @@ export function useJot() {
             j.id === id ? { ...j, tags: newTags, updatedAt: Date.now() } : j
           )
         );
+        trackEvent({ event: "tag_added", params: { tagCount: newTags.length } });
       }
       return success;
     },
@@ -228,6 +261,13 @@ export function useJot() {
     return Array.from(tagSet).sort();
   }, [jots]);
 
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    if (value.trim().length > 0) {
+      trackEvent({ event: "search_used" });
+    }
+  }, []);
+
   const filteredJots = useMemo(() => {
     const filtered = filterJots(jots, searchQuery, selectedTag, selectedCategory);
     return sortJots(filtered, sortOption);
@@ -246,7 +286,7 @@ export function useJot() {
     removeTag,
     refreshJots: loadJots,
     searchQuery,
-    setSearchQuery,
+    setSearchQuery: handleSearchChange,
     sortOption,
     setSortOption,
     selectedTag,

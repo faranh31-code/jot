@@ -15,11 +15,10 @@ import * as SplashScreen from "expo-splash-screen";
 import { Ionicons } from "@expo/vector-icons";
 import HomeScreen from "./src/screens/HomeScreen";
 import AuthModal from "./src/components/AuthModal";
-import OnboardingModal from "./src/components/OnboardingModal";
 import SettingsModal from "./src/components/SettingsModal";
 import PaywallModal from "./src/components/PaywallModal";
-import AppGuideModal from "./src/components/AppGuideModal";
 import AdBanner from "./src/components/AdBanner";
+import AdDiagnosticsOverlay from "./src/components/AdDiagnosticsOverlay";
 import { useAppSettings } from "./src/hooks/useAppSettings";
 import { useReviewPrompt } from "./src/hooks/useReviewPrompt";
 import { useAppFonts } from "./src/hooks/useAppFonts";
@@ -36,9 +35,16 @@ import {
   loadAppOpenAd,
   showAppOpenAd,
   loadInterstitial,
+  onAdsReady,
 } from "./src/services/ads";
 import { initSubscription, isPro } from "./src/services/subscription";
-import { startSession, endSession, trackEvent, getRetentionStats } from "./src/services/analytics";
+import {
+  captureReferralCode,
+  ensureReferralProfile,
+  submitReferralClaim,
+  applyReferralGrant,
+} from "./src/services/referral";
+import { startSession, endSession, trackEvent, getRetentionStats, trackFirstOpen } from "./src/services/analytics";
 import { Colors, BorderRadius, Spacing, FontSize, FontFamily } from "./src/constants/theme";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -54,10 +60,8 @@ export default function App() {
 
   const {
     isDark,
-    hasCompletedOnboarding,
     isLoaded: settingsLoaded,
     toggleTheme,
-    completeOnboarding,
   } = useAppSettings();
 
   const {
@@ -73,7 +77,6 @@ export default function App() {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [paywallTrigger, setPaywallTrigger] = useState<string | undefined>(undefined);
-  const [onboardingVisible, setOnboardingVisible] = useState(false);
 
   const appState = useRef(AppState.currentState);
 
@@ -86,13 +89,21 @@ export default function App() {
         await initSubscription();
       }
       initializeMobileAds();
+      trackFirstOpen();
       startSession();
-      getRetentionStats();
+      const retention = await getRetentionStats();
+      if (retention.daysSinceInstall >= 1) {
+        trackEvent({ event: "return_session", params: { daysSinceInstall: retention.daysSinceInstall } });
+      }
 
+      onAdsReady(() => {
+        loadAppOpenAd();
+        loadInterstitial();
+      });
       setTimeout(() => {
         loadAppOpenAd();
         loadInterstitial();
-      }, 5000);
+      }, 8000);
     })();
   }, []);
 
@@ -100,6 +111,17 @@ export default function App() {
     return () => {
       endSession();
     };
+  }, []);
+
+  const coldStartAdShown = useRef(false);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!isPro() && !coldStartAdShown.current) {
+        coldStartAdShown.current = true;
+        showAppOpenAd();
+      }
+    }, 12000);
+    return () => clearTimeout(timer);
   }, []);
 
   // --- Auth State ---
@@ -111,13 +133,6 @@ export default function App() {
     });
     return unsubscribe;
   }, [firebaseReady]);
-
-  // --- Onboarding Gate ---
-  useEffect(() => {
-    if (settingsLoaded && !hasCompletedOnboarding) {
-      setTimeout(() => setOnboardingVisible(true), 600);
-    }
-  }, [settingsLoaded, hasCompletedOnboarding]);
 
   // --- Deep Linking (share-into-Jot) ---
   const [sharedText, setSharedText] = useState<string | null>(null);
@@ -136,6 +151,9 @@ export default function App() {
   useEffect(() => {
     const handleUrl = (url: string | null) => {
       if (!url) return;
+      // Any incoming URL with an invite code (/r/CODE or ?code=) is captured so
+      // a brand-new email signup can later submit a referral claim.
+      captureReferralCode(url);
       const parsed = Linking.parse(url);
       if (parsed.scheme === "jotapp") {
         const text = parsed.queryParams?.text as string | undefined;
@@ -160,6 +178,18 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
+  // --- Referral: submit a pending claim after an email signup; apply Pro grant --
+  useEffect(() => {
+    if (!firebaseReady || !currentUser) return;
+    if (currentUser.provider.includes("anonymous")) return;
+
+    (async () => {
+      await ensureReferralProfile(currentUser.uid);
+      await submitReferralClaim(currentUser);
+      await applyReferralGrant(currentUser.uid);
+    })();
+  }, [firebaseReady, currentUser?.uid, currentUser?.provider]);
+
   // --- App Foreground ---
   useEffect(() => {
     const sub = AppState.addEventListener("change", (nextState) => {
@@ -171,11 +201,13 @@ export default function App() {
         if (!isPro()) {
           loadInterstitial();
         }
+        // Refresh a referral-granted Pro (friend trial or referral reward).
+        applyReferralGrant(currentUser?.uid || "").catch(() => {});
       }
       appState.current = nextState;
     });
     return () => sub.remove();
-  }, []);
+  }, [currentUser?.uid]);
 
   // --- Handlers ---
   const handleRequireAuth = useCallback(() => setAuthVisible(true), []);
@@ -185,6 +217,12 @@ export default function App() {
     setPaywallVisible(true);
   }, []);
   const handleAuthSuccess = useCallback(() => setAuthVisible(false), []);
+
+  // updateProfile()/updatePassword() don't re-trigger onAuthStateChanged, so
+  // refresh currentUser from getCurrentUser() after an Edit Profile save.
+  const handleProfileUpdated = useCallback(() => {
+    setCurrentUser(getCurrentUser());
+  }, []);
 
   const handleSignOut = useCallback(() => {
     Alert.alert("Sign Out", "Are you sure you want to sign out?", [
@@ -217,40 +255,9 @@ export default function App() {
     []
   );
 
-  const handlePurchase = useCallback(
-    async (plan: "monthly" | "annual" | "lifetime") => {
-      const { purchaseProMonthly, purchaseProAnnual, purchaseProLifetime } =
-        await import("./src/services/subscription");
-      const success =
-        plan === "monthly"
-          ? await purchaseProMonthly()
-          : plan === "annual"
-          ? await purchaseProAnnual()
-          : await purchaseProLifetime();
-      if (success) {
-        setPaywallVisible(false);
-        const planId =
-          plan === "monthly" ? "pro_monthly" : plan === "annual" ? "pro_annual" : "pro_lifetime";
-        trackEvent({ event: "purchase_success", params: { plan: planId } });
-      }
-    },
-    []
-  );
-
-  const handleRestore = useCallback(async () => {
-    const { restorePurchases } = await import("./src/services/subscription");
-    const success = await restorePurchases();
-    if (success) {
-      setPaywallVisible(false);
-    } else {
-      Alert.alert("No Purchases", "No previous purchases found to restore.");
-    }
+  const handlePurchaseClose = useCallback(() => {
+    setPaywallVisible(false);
   }, []);
-
-  const onboardingComplete = useCallback(() => {
-    completeOnboarding();
-    setOnboardingVisible(false);
-  }, [completeOnboarding]);
 
   // --- Derived ---
   const showAds = !isPro();
@@ -283,14 +290,27 @@ export default function App() {
             },
           ]}
         >
-          <Text
-            style={[
-              styles.headerTitle,
-              { color: isDark ? Colors.dark.text : Colors.light.text },
-            ]}
-          >
-            Jot
-          </Text>
+          <View style={styles.headerTitleWrap}>
+            <Text
+              style={[
+                styles.headerTitle,
+                { color: isDark ? Colors.dark.text : Colors.light.text },
+              ]}
+            >
+              Nota
+            </Text>
+            {currentUser?.displayName ? (
+              <Text
+                style={[
+                  styles.headerGreeting,
+                  { color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary },
+                ]}
+                numberOfLines={1}
+              >
+                Hi, {currentUser.displayName}
+              </Text>
+            ) : null}
+          </View>
           <View style={styles.headerButtons}>
             <Pressable
               style={[
@@ -340,7 +360,6 @@ export default function App() {
           uid={currentUser?.uid || null}
           isAnonymous={isAnonymous}
           onRequireAuth={handleRequireAuth}
-          onOpenSettings={handleOpenSettings}
           onOpenPaywall={handleOpenPaywall}
           sharedText={sharedText}
           onSharedTextConsumed={() => setSharedText(null)}
@@ -356,12 +375,6 @@ export default function App() {
         onAuthSuccess={handleAuthSuccess}
       />
 
-      <OnboardingModal
-        isVisible={onboardingVisible}
-        isDark={isDark}
-        onComplete={onboardingComplete}
-      />
-
       <SettingsModal
         isVisible={settingsVisible}
         isDark={isDark}
@@ -371,18 +384,15 @@ export default function App() {
         user={currentUser}
         onSignOut={handleSignOut}
         onDeleteAccount={handleDeleteAccount}
+        onProfileUpdated={handleProfileUpdated}
       />
 
       <PaywallModal
         isVisible={paywallVisible}
         isDark={isDark}
         trigger={paywallTrigger}
-        onClose={() => setPaywallVisible(false)}
-        onPurchase={handlePurchase}
-        onRestore={handleRestore}
+        onClose={handlePurchaseClose}
       />
-
-      <AppGuideModal isDark={isDark} />
 
       {isReviewVisible && (
         <View style={styles.reviewOverlay}>
@@ -465,6 +475,7 @@ export default function App() {
           </View>
         </View>
       )}
+      <AdDiagnosticsOverlay isDark={isDark} />
     </SafeAreaProvider>
   );
 }
@@ -485,6 +496,13 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.display,
     fontSize: FontSize.xl,
   },
+  headerTitleWrap: {
+    flexShrink: 1,
+  },
+  headerGreeting: {
+    fontSize: FontSize.sm,
+    marginTop: 1,
+  },
   headerButtons: {
     flexDirection: "row",
     gap: 8,
@@ -497,7 +515,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   reviewOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "center",
     alignItems: "center",
@@ -505,7 +523,7 @@ const styles = StyleSheet.create({
     zIndex: 9999,
   },
   reviewBackdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   reviewCard: {
     width: "100%",

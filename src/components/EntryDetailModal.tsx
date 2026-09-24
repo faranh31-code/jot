@@ -10,6 +10,7 @@ import {
   Keyboard,
 } from "react-native";
 import { Colors, BorderRadius, Spacing, FontSize } from "../constants/theme";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 interface EntryDetailModalProps {
   isVisible: boolean;
@@ -38,6 +39,7 @@ export default function EntryDetailModal({
   const [editHeadline, setEditHeadline] = useState(headline);
   const [editContent, setEditContent] = useState(content);
   const [copySuccess, setCopySuccess] = useState(false);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (isVisible) {
@@ -83,7 +85,7 @@ export default function EntryDetailModal({
 
   return (
     <Modal visible={isVisible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.overlay} onPress={onClose}>
+      <Pressable onPress={onClose} style={[styles.overlay, { paddingTop: 20 + insets.top, paddingBottom: 20 + insets.bottom }]}>
         <View
           style={[styles.container, { backgroundColor: bg, borderColor: border }]}
           onStartShouldSetResponder={() => true}
@@ -171,7 +173,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    paddingHorizontal: 20,
   },
   container: {
     width: "100%",

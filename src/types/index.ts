@@ -7,6 +7,9 @@ export interface Jot {
   category: JotCategory;
   isPinned: boolean;
   isFavorite: boolean;
+  isNote?: boolean;
+  noteColor?: StickyNoteColor;
+  collaborators?: string[];
   createdAt: number;
   updatedAt: number;
   syncStatus: SyncStatus;
@@ -34,6 +37,42 @@ export const CATEGORY_COLORS: Record<JotCategory, string> = {
   other: '#888888',
 };
 
+// Friendly, user-facing labels shown on each note card.
+export const CATEGORY_LABELS: Record<JotCategory, string> = {
+  personal: 'Personal Work',
+  work: 'Work',
+  ideas: 'Ideas',
+  study: 'Study',
+  shopping: 'Shopping',
+  quotes: 'Quotes',
+  other: 'Other',
+};
+
+export type StickyNoteColor = 'yellow' | 'green' | 'blue' | 'pink' | 'orange' | 'lavender';
+
+export const DEFAULT_NOTE_COLOR: StickyNoteColor = 'yellow';
+
+// Friendly, user-facing names for each sticky-note color.
+export const STICKY_NOTE_NAMES: Record<StickyNoteColor, string> = {
+  yellow: 'Sunshine',
+  green: 'Mint',
+  blue: 'Sky',
+  pink: 'Blossom',
+  orange: 'Peach',
+  lavender: 'Lilac',
+};
+
+// Classic sticky-note palette with an ink (text) color tuned for contrast
+// against each paper color — sticky notes keep their palette in both themes.
+export const STICKY_NOTE_COLORS: Record<StickyNoteColor, { paper: string; ink: string; accent: string }> = {
+  yellow: { paper: '#FDE68A', ink: '#4A3B00', accent: '#E9C64B' },
+  green: { paper: '#BBF7D0', ink: '#14532D', accent: '#7BD9A2' },
+  blue: { paper: '#BFDBFE', ink: '#1E3A8A', accent: '#8DB5F3' },
+  pink: { paper: '#FBCFE8', ink: '#6B0F3A', accent: '#F19FC8' },
+  orange: { paper: '#FED7AA', ink: '#7C2D12', accent: '#F5B477' },
+  lavender: { paper: '#E9D5FF', ink: '#4C1D95', accent: '#C9A6F2' },
+};
+
 export type SyncStatus = 'local' | 'syncing' | 'synced' | 'pending' | 'error';
 
 export type ShareStyle = 'minimal' | 'dark' | 'paper' | 'gradient' | 'bold' | 'soft';
@@ -53,8 +92,6 @@ export interface UserProfile {
 
 export interface AppSettings {
   isDark: boolean;
-  hasCompletedOnboarding: boolean;
-  hasSeenGuide: boolean;
   defaultCategory: JotCategory;
   showBranding: boolean;
   lastReviewPrompt: number;

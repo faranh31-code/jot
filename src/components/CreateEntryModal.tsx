@@ -12,6 +12,7 @@ import {
   ScrollView,
 } from "react-native";
 import { Colors, BorderRadius, Spacing, FontSize } from "../constants/theme";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 interface CreateEntryModalProps {
   isVisible: boolean;
@@ -32,6 +33,7 @@ export default function CreateEntryModal({
 }: CreateEntryModalProps) {
   const [headline, setHeadline] = useState("");
   const [content, setContent] = useState("");
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (editData) {
@@ -73,7 +75,10 @@ export default function CreateEntryModal({
   return (
     <Modal visible={isVisible} transparent animationType="fade" onRequestClose={handleClose}>
       <KeyboardAvoidingView
-        style={styles.overlay}
+        style={[
+          styles.overlay,
+          { paddingTop: Spacing.lg + insets.top, paddingBottom: Spacing.lg + insets.bottom },
+        ]}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
       >
@@ -157,10 +162,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
   },
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.5)",
   },
   container: {

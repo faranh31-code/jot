@@ -8,13 +8,17 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
+  PixelRatio,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
 import { Jot, ShareStyle, CATEGORY_COLORS } from '../types';
 import { Colors, Spacing, FontSize, BorderRadius, Shadow, FontFamily } from '../constants/theme';
-import { trackEvent } from '../services/analytics';
+import { trackEvent, trackFirstShare } from '../services/analytics';
+import AdBanner from './AdBanner';
+import PaywallModal from './PaywallModal';
+import type { TextStyle } from 'react-native';
 
 interface ShareCardProps {
   jot: Jot;
@@ -32,79 +36,108 @@ const SHARE_STYLES: { key: ShareStyle; label: string; pro: boolean }[] = [
   { key: 'dark', label: 'Midnight', pro: true },
   { key: 'paper', label: 'Paper', pro: true },
   { key: 'gradient', label: 'Brand', pro: true },
-  { key: 'bold', label: 'Bold', pro: true },
+  { key: 'bold', label: 'Board', pro: true },
   { key: 'soft', label: 'Soft', pro: false },
 ];
 
-function getShareCardStyles(
-  style: ShareStyle,
-  isDark: boolean,
-): { container: object; headline: object; body: object; tag: object; meta: object; bg: string } {
-  const base: object = {
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.xl,
-  };
+interface SharePalette {
+  bg: string;
+  border: string | null;
+  headline: string;
+  body: string;
+  tag: string;
+  tagBg: string;
+  tagBorder: string | null;
+  meta: string;
+  divider: string;
+  headlineStyle?: Pick<TextStyle, 'fontStyle' | 'fontWeight' | 'textTransform' | 'letterSpacing'>;
+  bodyStyle?: Pick<TextStyle, 'fontStyle' | 'fontWeight'>;
+}
 
-  const headlineFont = { fontFamily: FontFamily.display };
-  const bodyFont = { fontFamily: FontFamily.sans };
-
+// Every palette must declare explicit, high-contrast text colors that can
+// never collapse into the background — so all five styles always render the
+// title, body, tags and footer regardless of the app theme.
+function getSharePalette(style: ShareStyle, isDark: boolean): SharePalette {
+  const t = isDark ? Colors.dark : Colors.light;
   switch (style) {
-    case 'dark':
-      // Midnight — warm near-black, matching the app's own dark theme rather than a cold navy.
+    case 'dark': // Midnight — warm near-black, matching the app's own dark theme.
       return {
-        container: { ...base, backgroundColor: Colors.dark.bg },
-        headline: { ...headlineFont, color: Colors.dark.text, fontSize: FontSize.xxl },
-        body: { ...bodyFont, color: Colors.dark.textSecondary, fontSize: FontSize.md, lineHeight: 24 },
-        tag: { color: Colors.dark.accentText },
-        meta: { color: Colors.dark.textMuted },
         bg: Colors.dark.bg,
+        border: '#2B2517',
+        headline: Colors.dark.text,
+        body: Colors.dark.textSecondary,
+        tag: Colors.dark.accentText,
+        tagBg: Colors.dark.accentLight,
+        tagBorder: Colors.dark.accentBorder,
+        meta: Colors.dark.textMuted,
+        divider: Colors.dark.border,
       };
     case 'paper':
       return {
-        container: { ...base, backgroundColor: '#F5F0E8', borderWidth: 1, borderColor: '#E0D9C8' },
-        headline: { ...headlineFont, color: '#2C2C2C', fontSize: FontSize.xxl, fontStyle: 'italic' },
-        body: { ...bodyFont, color: '#4A4A4A', fontSize: FontSize.md, lineHeight: 24, fontStyle: 'italic' },
-        tag: { color: Colors.accent },
-        meta: { color: '#A09080' },
         bg: '#F5F0E8',
+        border: '#E0D9C8',
+        headline: '#2C2C2C',
+        body: '#4A4A4A',
+        tag: Colors.accent,
+        tagBg: '#EADFCC',
+        tagBorder: null,
+        meta: '#A09080',
+        divider: '#E0D9C8',
+        headlineStyle: { fontStyle: 'italic' },
+        bodyStyle: { fontStyle: 'italic' },
       };
-    case 'gradient':
-      // Brand — the app's own ink-amber, for a jot that reads unmistakably as "from Jot".
+    case 'gradient': // Brand — ink-amber card, unmistakably "from Nota".
       return {
-        container: { ...base, backgroundColor: Colors.accent },
-        headline: { ...headlineFont, color: Colors.onAccent, fontSize: FontSize.xxl },
-        body: { ...bodyFont, color: 'rgba(255,255,255,0.9)', fontSize: FontSize.md, lineHeight: 24 },
-        tag: { color: 'rgba(255,255,255,0.75)' },
-        meta: { color: 'rgba(255,255,255,0.6)' },
         bg: Colors.accent,
+        border: null,
+        headline: Colors.onAccent,
+        body: 'rgba(255,255,255,0.92)',
+        tag: 'rgba(255,255,255,0.9)',
+        tagBg: 'rgba(255,255,255,0.16)',
+        tagBorder: null,
+        meta: 'rgba(255,255,255,0.7)',
+        divider: 'rgba(255,255,255,0.3)',
       };
     case 'bold':
       return {
-        container: { ...base, backgroundColor: '#000000' },
-        headline: { ...headlineFont, color: '#FFFFFF', fontSize: FontSize.xxl, textTransform: 'uppercase', letterSpacing: 1 },
-        body: { ...bodyFont, color: '#FFFFFF', fontSize: FontSize.md, lineHeight: 24, fontWeight: '300' },
-        tag: { color: '#FFD93D' },
-        meta: { color: '#888888' },
         bg: '#000000',
+        border: '#1F1F1F',
+        headline: '#FFFFFF',
+        body: '#FFFFFF',
+        tag: '#FFD93D',
+        tagBg: 'rgba(255,217,61,0.14)',
+        tagBorder: null,
+        meta: '#A0A0A0',
+        divider: 'rgba(255,255,255,0.22)',
+        headlineStyle: { fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 } as const,
+        bodyStyle: { fontWeight: '300' },
       };
     case 'soft':
+      // Soft is always a warm cream paper with dark ink — a fixed, readable
+      // pairing so text can never disappear on either theme.
       return {
-        container: { ...base, backgroundColor: isDark ? '#33241A' : '#FBEEDD' },
-        headline: { ...headlineFont, color: isDark ? Colors.dark.text : Colors.light.text, fontSize: FontSize.xxl },
-        body: { ...bodyFont, color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary, fontSize: FontSize.md, lineHeight: 24 },
-        tag: { color: isDark ? Colors.dark.accentText : Colors.light.accentText },
-        meta: { color: isDark ? Colors.dark.textMuted : Colors.light.textMuted },
-        bg: isDark ? '#33241A' : '#FBEEDD',
+        bg: '#FBEEDD',
+        border: '#EEDCC1',
+        headline: '#3A2A1E',
+        body: '#5A4532',
+        tag: Colors.accent,
+        tagBg: '#F1D9B6',
+        tagBorder: null,
+        meta: '#A08B6F',
+        divider: '#E8D5B6',
       };
     case 'minimal':
     default:
       return {
-        container: { ...base, backgroundColor: isDark ? Colors.dark.surface : '#FFFFFF', borderWidth: 1, borderColor: isDark ? Colors.dark.border : '#E5E5EA' },
-        headline: { ...headlineFont, color: isDark ? Colors.dark.text : Colors.light.text, fontSize: FontSize.xxl },
-        body: { ...bodyFont, color: isDark ? Colors.dark.textSecondary : Colors.light.textSecondary, fontSize: FontSize.md, lineHeight: 24 },
-        tag: { color: isDark ? Colors.dark.accentText : Colors.light.accentText },
-        meta: { color: isDark ? Colors.dark.textMuted : Colors.light.textMuted },
         bg: isDark ? Colors.dark.surface : '#FFFFFF',
+        border: isDark ? Colors.dark.border : '#E5E5EA',
+        headline: t.text,
+        body: t.textSecondary,
+        tag: t.accentText,
+        tagBg: t.accentLight,
+        tagBorder: t.accentBorder,
+        meta: t.textMuted,
+        divider: isDark ? Colors.dark.border : '#E5E5EA',
       };
   }
 }
@@ -113,7 +146,6 @@ export default function ShareCard({
   jot,
   isDark,
   isPro,
-  onOpenPaywall,
   onShareText,
   onShareImage,
   onCopy,
@@ -122,8 +154,16 @@ export default function ShareCard({
   const theme = isDark ? Colors.dark : Colors.light;
   const [selectedStyle, setSelectedStyle] = useState<ShareStyle>('minimal');
   const [capturing, setCapturing] = useState(false);
-  const shareStyles = getShareCardStyles(selectedStyle, isDark);
+  const [layout, setLayout] = useState<{ width: number; height: number } | null>(null);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallTrigger, setPaywallTrigger] = useState<string | undefined>(undefined);
+  const palette = getSharePalette(selectedStyle, isDark);
   const previewRef = useRef<View>(null);
+
+  const openPaywall = (trigger?: string) => {
+    setPaywallTrigger(trigger);
+    setPaywallVisible(true);
+  };
 
   const categoryColor = CATEGORY_COLORS[jot.category];
   const date = new Date(jot.updatedAt || jot.createdAt);
@@ -132,13 +172,30 @@ export default function ShareCard({
   const handleShareImage = async () => {
     if (capturing) return;
     setCapturing(true);
+    trackEvent({ event: 'share_started', params: { type: 'image' } });
     try {
-      const uri = await captureRef(previewRef, { format: 'png', quality: 1 });
+      // Recreate the artwork size in native pixels so react-native-view-shot
+      // renders text at the exact positions it occupies on screen (no DIP/px
+      // rounding drift). Wait for the layout + font pass to settle first.
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 250)))
+      );
+      const widthPx = layout ? layout.width * PixelRatio.get() : undefined;
+      const heightPx = layout ? Math.max(Math.round(layout.height) * PixelRatio.get(), 1) : undefined;
+      const uri = await captureRef(previewRef, {
+        format: 'png',
+        quality: 1,
+        result: 'tmpfile',
+        width: widthPx,
+        height: heightPx,
+      });
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
-        await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: 'Share from Jot' });
+        await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: 'Share from Nota' });
       }
+      trackEvent({ event: 'share_completed', params: { type: 'image' } });
       trackEvent({ event: 'jot_card_created', params: { style: selectedStyle } });
+      trackFirstShare();
       onShareImage();
     } catch (error) {
       console.warn('[ShareCard] Image capture failed:', error);
@@ -157,11 +214,11 @@ export default function ShareCard({
     >
       <View style={[styles.container, { backgroundColor: theme.bg }]}>
         <View style={[styles.header, { borderBottomColor: theme.border }]}>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+          <TouchableOpacity onPress={onClose} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Close share">
             <Ionicons name="close" size={24} color={theme.text} />
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: theme.text }]}>
-            Share Jot
+            Share
           </Text>
           <View style={styles.closeButton} />
         </View>
@@ -172,34 +229,79 @@ export default function ShareCard({
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.previewContainer}>
-            <View ref={previewRef} collapsable={false} style={[styles.previewCard, shareStyles.container]}>
-              <View style={[styles.previewAccent, { backgroundColor: categoryColor }]} />
+            <View style={styles.previewShadow}>
+              <View
+                ref={previewRef}
+                collapsable={false}
+                onLayout={(e) => {
+                  const { width, height } = e.nativeEvent.layout;
+                  setLayout((prev) =>
+                    prev && prev.width === width && prev.height === height
+                      ? prev
+                      : { width, height }
+                  );
+                }}
+                style={[
+                  styles.artwork,
+                  {
+                    backgroundColor: palette.bg,
+                    borderColor: palette.border || 'transparent',
+                    borderWidth: palette.border ? 1 : 0,
+                  },
+                ]}
+              >
+                <View style={[styles.artworkAccent, { backgroundColor: categoryColor }]} />
 
-              <Text style={shareStyles.headline}>{jot.headline || 'Untitled'}</Text>
+                <View style={styles.artworkContent}>
+                  <Text
+                    style={[
+                      styles.artworkHeadline,
+                      { color: palette.headline },
+                      palette.headlineStyle,
+                    ]}
+                  >
+                    {jot.headline || 'Untitled'}
+                  </Text>
 
-              <Text style={[shareStyles.body, styles.previewBody]}>
-                {jot.body}
-              </Text>
+                  <Text style={[styles.artworkBody, { color: palette.body }, palette.bodyStyle]}>
+                    {jot.body}
+                  </Text>
 
-              {jot.tags.length > 0 && (
-                <View style={styles.previewTags}>
-                  {jot.tags.map((tag) => (
-                    <Text key={tag} style={[shareStyles.tag, styles.previewTag]}>
-                      #{tag}
+                  {jot.tags.length > 0 && (
+                    <View style={styles.artworkTags}>
+                      {jot.tags.map((tag) => (
+                        <View
+                          key={tag}
+                          style={[
+                            styles.artworkTag,
+                            {
+                              backgroundColor: palette.tagBg,
+                              borderColor: palette.tagBorder || 'transparent',
+                              borderWidth: palette.tagBorder ? StyleSheet.hairlineWidth : 0,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.artworkTagText, { color: palette.tag }]}>
+                            #{tag}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  <View style={[styles.artworkFooter, { borderTopColor: palette.divider }]}>
+                    <Text style={[styles.artworkMeta, { color: palette.meta }]}>
+                      {formattedDate}
                     </Text>
-                  ))}
+                    {!isPro && (
+                      <TouchableOpacity onPress={() => openPaywall('branding')} hitSlop={8}>
+                        <Text style={[styles.artworkMeta, styles.artworkBrand, { color: palette.meta }]}>
+                          Made with Nota
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
-              )}
-
-              <View style={styles.previewFooter}>
-                <Text style={shareStyles.meta}>{formattedDate}</Text>
-                {!isPro && (
-                  <TouchableOpacity onPress={() => onOpenPaywall('branding')} hitSlop={8}>
-                    <Text style={[styles.branding, shareStyles.meta]}>
-                      Made with Jot
-                    </Text>
-                  </TouchableOpacity>
-                )}
               </View>
             </View>
           </View>
@@ -216,12 +318,12 @@ export default function ShareCard({
               {SHARE_STYLES.map((s) => {
                 const isActive = selectedStyle === s.key;
                 const isLocked = s.pro && !isPro;
-                const preview = getShareCardStyles(s.key, isDark);
+                const p = getSharePalette(s.key, isDark);
                 return (
                   <TouchableOpacity
                     key={s.key}
                     onPress={() =>
-                      isLocked ? onOpenPaywall('jot_card_style') : setSelectedStyle(s.key)
+                      isLocked ? openPaywall('jot_card_style') : setSelectedStyle(s.key)
                     }
                     activeOpacity={0.7}
                     style={[
@@ -234,10 +336,18 @@ export default function ShareCard({
                     <View
                       style={[
                         styles.stylePreview,
-                        { backgroundColor: preview.bg },
+                        {
+                          backgroundColor: p.bg,
+                          borderColor: p.border || 'transparent',
+                          borderWidth: p.border ? 1 : 0,
+                        },
                       ]}
                     >
                       <View style={[styles.stylePreviewAccent, { backgroundColor: categoryColor }]} />
+                      <View style={styles.stylePreviewLines}>
+                        <View style={[styles.stylePreviewLine, { backgroundColor: p.headline }]} />
+                        <View style={[styles.stylePreviewLine, styles.stylePreviewLineShort, { backgroundColor: p.body }]} />
+                      </View>
                       {isLocked && (
                         <View style={styles.lockBadge}>
                           <Ionicons name="lock-closed" size={12} color={theme.textMuted} />
@@ -303,7 +413,14 @@ export default function ShareCard({
             </View>
           </View>
         </ScrollView>
+        {!isPro && <AdBanner isDark={isDark} position="bottom" />}
       </View>
+      <PaywallModal
+        isVisible={paywallVisible}
+        isDark={isDark}
+        trigger={paywallTrigger}
+        onClose={() => setPaywallVisible(false)}
+      />
     </Modal>
   );
 }
@@ -324,6 +441,7 @@ const styles = StyleSheet.create({
   closeButton: {
     width: 40,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
     fontFamily: FontFamily.sansSemiBold,
@@ -339,39 +457,63 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     alignItems: 'center',
   },
-  previewCard: {
+  previewShadow: {
     width: '100%',
     maxWidth: 360,
-    overflow: 'hidden',
+    borderRadius: BorderRadius.lg,
     ...Shadow.md,
   },
-  previewAccent: {
-    height: 3,
+  artwork: {
+    width: '100%',
+    borderRadius: BorderRadius.lg,
+    overflow: 'hidden',
+  },
+  artworkAccent: {
+    height: 6,
     width: '100%',
   },
-  previewBody: {
-    marginTop: Spacing.sm,
+  artworkContent: {
+    padding: Spacing.lg,
+    paddingBottom: Spacing.xl,
   },
-  previewTags: {
+  artworkHeadline: {
+    fontFamily: FontFamily.display,
+    fontSize: FontSize.xxl,
+    lineHeight: 32,
+    marginBottom: Spacing.sm,
+  },
+  artworkBody: {
+    fontFamily: FontFamily.sans,
+    fontSize: FontSize.lg,
+    lineHeight: 26,
+  },
+  artworkTags: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: Spacing.sm,
+    gap: Spacing.xs,
     marginTop: Spacing.md,
   },
-  previewTag: {
-    fontSize: FontSize.sm,
+  artworkTag: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs + 1,
+    borderRadius: BorderRadius.full,
   },
-  previewFooter: {
+  artworkTagText: {
+    fontSize: FontSize.sm,
+    fontWeight: '500',
+  },
+  artworkFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: Spacing.lg,
     paddingTop: Spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(128,128,128,0.2)',
   },
-  branding: {
+  artworkMeta: {
     fontSize: FontSize.xs,
+  },
+  artworkBrand: {
     fontStyle: 'italic',
   },
   section: {
@@ -411,6 +553,20 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     left: 0,
+  },
+  stylePreviewLines: {
+    justifyContent: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    width: '100%',
+  },
+  stylePreviewLine: {
+    height: 3,
+    borderRadius: 2,
+    width: '70%',
+  },
+  stylePreviewLineShort: {
+    width: '45%',
   },
   lockBadge: {
     width: 20,

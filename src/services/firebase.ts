@@ -35,6 +35,8 @@ import {
   query,
   where,
   getDocs,
+  setDoc,
+  getDoc,
 } from "firebase/firestore";
 
 const FIREBASE_CONFIG = {
@@ -57,7 +59,7 @@ let firebaseInitialized = false;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-import { Jot, JotCategory, SyncStatus } from "../types";
+import { Jot, JotCategory, SyncStatus, StickyNoteColor } from "../types";
 
 export type { Jot, JotCategory, SyncStatus };
 
@@ -126,6 +128,9 @@ function jotToFirestore(jot: Omit<Jot, "id">): Record<string, any> {
     category: jot.category,
     isPinned: jot.isPinned,
     isFavorite: jot.isFavorite,
+    isNote: jot.isNote ?? false,
+    noteColor: jot.noteColor ?? null,
+    collaborators: jot.collaborators ?? [],
     createdAt: jot.createdAt,
     updatedAt: jot.updatedAt,
   };
@@ -142,6 +147,9 @@ function firestoreDocToJot(d: { id: string; data(): any }): Jot {
     category: data.category || 'other',
     isPinned: data.isPinned ?? data.pinned ?? false,
     isFavorite: data.isFavorite ?? false,
+    isNote: data.isNote ?? false,
+    noteColor: data.noteColor || undefined,
+    collaborators: data.collaborators || [],
     createdAt: data.createdAt || 0,
     updatedAt: data.updatedAt || 0,
     syncStatus: "synced",
@@ -151,6 +159,11 @@ function firestoreDocToJot(d: { id: string; data(): any }): Jot {
 // ─── Firebase Init ────────────────────────────────────────────────────────────
 
 const AUTH_MIGRATION_FLAG = "jotapp_migrated_auth_v2";
+
+// Auth listeners who subscribed before initFirebase() resolved. onAuthStateChanged
+// must not drop them (a dead no-op meant the restored session never triggered a
+// reload, so cloud tasks looked "lost" after restart).
+const pendingAuthWaiters: (() => void)[] = [];
 
 export async function initFirebase(): Promise<boolean> {
   if (firebaseInitialized) return true;
@@ -177,6 +190,12 @@ export async function initFirebase(): Promise<boolean> {
     db = getFirestore(firebaseApp);
     firebaseInitialized = true;
     console.log("[Firebase] Initialized successfully (JS SDK)");
+
+    // Flush any onAuthStateChanged listeners that queued up before init resolved.
+    const waiters = pendingAuthWaiters.splice(0, pendingAuthWaiters.length);
+    for (const w of waiters) {
+      try { w(); } catch {}
+    }
 
     // One-time cleanup: earlier versions stored the raw email+password in
     // AsyncStorage to replay sign-in on launch. Remove any lingering copy.
@@ -231,23 +250,38 @@ export function isAnonymousUser(): boolean {
 }
 
 export function onAuthStateChanged(callback: (user: UserProfile | null) => void): () => void {
+  let unsubReal: (() => void) | null = null;
+  const subscribe = () => {
+    if (!auth) return;
+    unsubReal = firebaseOnAuthStateChanged(auth, (user) => {
+      if (user) {
+        callback({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+          photoURL: user.photoURL,
+          provider: user.providerData?.[0]?.providerId || "unknown",
+        });
+      } else {
+        callback(null);
+      }
+    });
+  };
+
+  // If init hasn't finished yet, queue the subscription so the restored session
+  // (Firebase persists it via AsyncStorage) still reaches this listener.
   if (!auth) {
-    callback(null);
-    return () => {};
+    pendingAuthWaiters.push(subscribe);
+    return () => {
+      const i = pendingAuthWaiters.indexOf(subscribe);
+      if (i >= 0) pendingAuthWaiters.splice(i, 1);
+      if (unsubReal) unsubReal();
+    };
   }
-  return firebaseOnAuthStateChanged(auth, (user) => {
-    if (user) {
-      callback({
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName,
-        photoURL: user.photoURL,
-        provider: user.providerData?.[0]?.providerId || "unknown",
-      });
-    } else {
-      callback(null);
-    }
-  });
+  subscribe();
+  return () => {
+    if (unsubReal) unsubReal();
+  };
 }
 
 export async function signUpWithEmail(
@@ -488,6 +522,8 @@ async function migrateLocalJotsToCloud(targetUserId: string): Promise<void> {
         category: jot.category,
         isPinned: jot.isPinned,
         isFavorite: jot.isFavorite,
+        isNote: jot.isNote,
+        noteColor: jot.noteColor,
         createdAt: jot.createdAt,
         updatedAt: jot.updatedAt,
         syncStatus: "synced",
@@ -524,7 +560,7 @@ async function deleteAnonymousFirestoreEntries(anonymousUid: string): Promise<vo
 export async function addJot(
   headline: string,
   body: string,
-  options?: { tags?: string[]; category?: JotCategory }
+  options?: { tags?: string[]; category?: JotCategory; isNote?: boolean; noteColor?: StickyNoteColor; collaborators?: string[] }
 ): Promise<Jot | null> {
   const uid = getUid();
   const isAnon = isAnonymousUser();
@@ -539,6 +575,9 @@ export async function addJot(
     category: options?.category || 'other',
     isPinned: false,
     isFavorite: false,
+    isNote: options?.isNote ?? false,
+    noteColor: options?.noteColor as any,
+    collaborators: options?.collaborators?.length ? [...options.collaborators] : [],
     createdAt: now,
     updatedAt: now,
     syncStatus: isAnon || !uid ? "local" : "synced",
@@ -582,6 +621,9 @@ export async function updateJot(
     body?: string;
     tags?: string[];
     category?: JotCategory;
+    isNote?: boolean;
+    noteColor?: StickyNoteColor;
+    collaborators?: string[];
   }
 ): Promise<boolean> {
   const isAnon = isAnonymousUser();
@@ -608,6 +650,9 @@ export async function updateJot(
       if (updates.body !== undefined) payload.body = updates.body;
       if (updates.tags !== undefined) payload.tags = updates.tags;
       if (updates.category !== undefined) payload.category = updates.category;
+      if (updates.isNote !== undefined) payload.isNote = updates.isNote;
+      if (updates.noteColor !== undefined) payload.noteColor = updates.noteColor;
+      if (updates.collaborators !== undefined) payload.collaborators = updates.collaborators;
       await updateDoc(doc(db, ENTRIES_COLLECTION, id), payload);
       return true;
     } catch (err) {
@@ -621,13 +666,20 @@ export async function updateJot(
 
 export async function deleteJot(id: string): Promise<boolean> {
   const isAnon = isAnonymousUser();
+  const uid = getUid();
 
-  if (isAnon || !getUid()) {
-    const localJots = await getLocalJots();
-    const filtered = localJots.filter((j) => j.id !== id);
-    if (filtered.length === localJots.length) return false;
-    await saveLocalJots(filtered);
-    return true;
+  // Always purge from the local store first — pending/local notes live only
+  // there and must disappear even if no cloud write is needed.
+  const localJots = await getLocalJots();
+  const removedLocally = localJots.some((j) => j.id === id);
+  if (removedLocally) {
+    await saveLocalJots(localJots.filter((j) => j.id !== id));
+  }
+
+  // local_* ids were never written to Firestore, so there is nothing to delete
+  // remotely (attempting it would trip the rules on a missing document).
+  if (isAnon || !uid || id.startsWith("local_")) {
+    return removedLocally;
   }
 
   if (db) {
@@ -636,11 +688,11 @@ export async function deleteJot(id: string): Promise<boolean> {
       return true;
     } catch (err) {
       console.warn("[Firebase] deleteJot failed:", err);
-      return false;
+      return removedLocally;
     }
   }
 
-  return false;
+  return removedLocally;
 }
 
 export async function getJots(): Promise<Jot[]> {
@@ -660,6 +712,24 @@ export async function getJots(): Promise<Jot[]> {
     const snapshot = await getDocs(q);
     const cloudJots = snapshot.docs.map((d) => firestoreDocToJot(d));
 
+    // Tasks shared with this user via collaboration (they appear under the owner's
+    // userId, so an array-contains on the current user's email pulls them in).
+    const currentEmail = getCurrentUser()?.email?.toLowerCase();
+    if (currentEmail) {
+      try {
+        const sharedQ = query(
+          collection(db, ENTRIES_COLLECTION),
+          where("collaborators", "array-contains", currentEmail)
+        );
+        const sharedSnapshot = await getDocs(sharedQ);
+        const cloudIds = new Set(cloudJots.map((j) => j.id));
+        for (const d of sharedSnapshot.docs) {
+          if (!cloudIds.has(d.id)) cloudJots.push(firestoreDocToJot(d));
+        }
+      } catch (err) {
+        console.warn("[Firebase] getJots (shared) failed:", err);
+      }
+    }
     const localOnlyIds = localJots.filter((j) => !j.id.startsWith("local_")).map((j) => j.id);
     const cloudIds = new Set(cloudJots.map((j) => j.id));
     const pendingLocal = localJots.filter((j) => j.id.startsWith("local_") || !cloudIds.has(j.id));
@@ -818,4 +888,10 @@ export async function deleteEntry(id: string): Promise<boolean> {
 
 export function isFirebaseAvailable(): boolean {
   return firebaseInitialized;
+}
+
+// Accessor so other services (referral, etc.) can issue their own Firestore
+// reads/writes through the same initialized instance.
+export function getDb(): any {
+  return db;
 }

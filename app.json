@@ -1,25 +1,17 @@
 {
   "expo": {
-    "name": "Jot",
-    "slug": "jot-notes-save-copy-text",
+    "name": "Nota",
+    "slug": "nota-easy-notes",
     "version": "2.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/Nota_logo_1024x1024.png",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": false,
-    "splash": {
-      "backgroundColor": "#0A0A1A",
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.faran.app3",
-      "buildNumber": "10",
-      "icon": "./assets/ios-app-store-icon.png",
-      "config": {
-        "googleMobileAdsAppId": "ca-app-pub-4386055252112057~7597253176"
-      },
+      "buildNumber": "14",
+      "icon": "./assets/Nota_logo_1024x1024.png",
+      "associatedDomains": ["applinks:faran.app"],
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSUserTrackingUsageDescription": "Allow this app to use your data to show you relevant ads that support our free app. Your privacy matters to us.",
@@ -33,14 +25,38 @@
       }
     },
     "android": {
+      "icon": "./assets/Nota_logo_432x432.png",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/Nota_logo_432x432.png",
         "backgroundColor": "#0A0A1A"
       },
       "package": "com.faran.app3",
-      "config": {
-        "googleMobileAdsAppId": "ca-app-pub-4386055252112057~2456607131"
-      },
+      "versionCode": 3,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "faran.app",
+              "pathPrefix": "/r/"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": false,
+          "data": [
+            {
+              "scheme": "jotapp",
+              "host": "referral"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "permissions": [
         "com.google.android.gms.permission.AD_ID"
       ]
@@ -51,6 +67,18 @@
     },
     "scheme": "jotapp",
     "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0A0A1A",
+          "image": "./assets/Nota_logo_512x512.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "ios": {
+            "image": "./assets/Nota_logo_1024x1024.png"
+          }
+        }
+      ],
       [
         "expo-tracking-transparency",
         {
@@ -63,7 +91,58 @@
           "androidAppId": "ca-app-pub-4386055252112057~2456607131",
           "iosAppId": "ca-app-pub-4386055252112057~7597253176",
           "userTrackingUsageDescription": "Allow this app to use your data to show you relevant ads that support our free app. Your privacy matters to us.",
-          "delayAppMeasurementInit": false
+          "delayAppMeasurementInit": false,
+          "skAdNetworkItems": [
+            "cstr6suwn9.skadnetwork",
+            "4fzdc2evr5.skadnetwork",
+            "2fnua5tdw4.skadnetwork",
+            "ydx93a7ass.skadnetwork",
+            "p78axxw29g.skadnetwork",
+            "v72qych5uu.skadnetwork",
+            "ludvb6z3bs.skadnetwork",
+            "cp8zw746q7.skadnetwork",
+            "3sh42y64q3.skadnetwork",
+            "c6k4g5qg8m.skadnetwork",
+            "s39g8k73mm.skadnetwork",
+            "3qy4746246.skadnetwork",
+            "f38h382jlk.skadnetwork",
+            "hs6bdukanm.skadnetwork",
+            "mlmmfzh3r3.skadnetwork",
+            "v4nxqhlyqp.skadnetwork",
+            "wzmmz9fp6w.skadnetwork",
+            "su67r6k2v3.skadnetwork",
+            "yclnxrl5pm.skadnetwork",
+            "t38b2kh725.skadnetwork",
+            "7ug5zh24hu.skadnetwork",
+            "gta9lk7p23.skadnetwork",
+            "vutu7akeur.skadnetwork",
+            "y5ghdn5j9k.skadnetwork",
+            "v9wttpbfk9.skadnetwork",
+            "n38lu8286q.skadnetwork",
+            "47vhws6wlr.skadnetwork",
+            "kbd757ywx3.skadnetwork",
+            "9t245vhmpl.skadnetwork",
+            "a2p9lx4jpn.skadnetwork",
+            "22mmun2rn5.skadnetwork",
+            "44jx6755aq.skadnetwork",
+            "k674qkevps.skadnetwork",
+            "4468km3ulz.skadnetwork",
+            "2u9pt9hc89.skadnetwork",
+            "8s468mfl3y.skadnetwork",
+            "klf5c3l5u5.skadnetwork",
+            "ppxm28t8ap.skadnetwork",
+            "kbmxgpxpgc.skadnetwork",
+            "uw77j35x4d.skadnetwork",
+            "578prtvx9j.skadnetwork",
+            "4dzt52r2t5.skadnetwork",
+            "tl55sbb4fm.skadnetwork",
+            "c3frkrj4fj.skadnetwork",
+            "e5fvkxwrpn.skadnetwork",
+            "8c4e2ghe7u.skadnetwork",
+            "3rd42ekr43.skadnetwork",
+            "97r2b46745.skadnetwork",
+            "3qcr597p9d.skadnetwork"
+          ]
         }
       ],
       [
@@ -80,9 +159,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "1cdb784c-5cc5-4cbb-8b16-675c18137f07"
+        "projectId": "16e8a8da-21f1-4f31-916e-7f8819458fc4"
       }
     },
-    "owner": "shumaila_saher"
+    "owner": "inertiadeals"
   }
 }

@@ -1,12 +1,10 @@
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback } from "react";
 import { Platform } from "react-native";
 import { loadInterstitial, showInterstitial, onAdsReady, isAdsInitialized } from "../services/ads";
 
-const isExpoGo = (global as any).expo?.modules?.ExponentConstants?.appOwnership === "expo";
+const isExpoGo = (globalThis as any).expo?.modules?.ExponentConstants?.appOwnership === "expo";
 
 export function useInterstitialAd() {
-  const actionCount = useRef(0);
-
   useEffect(() => {
     if (Platform.OS === "web" || isExpoGo) return;
 
@@ -24,11 +22,7 @@ export function useInterstitialAd() {
 
   const maybeShowAfterAction = useCallback(async (): Promise<boolean> => {
     if (Platform.OS === "web" || isExpoGo) return false;
-    actionCount.current += 1;
-    if (actionCount.current % 2 === 0) {
-      return await showInterstitial();
-    }
-    return false;
+    return await showInterstitial();
   }, []);
 
   const showNow = useCallback(async (): Promise<boolean> => {

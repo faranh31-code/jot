@@ -2,7 +2,7 @@ import { useEffect, useCallback, useState } from "react";
 import { Platform } from "react-native";
 import { loadRewarded, showRewarded, isRewardedReady, onAdsReady, isAdsInitialized } from "../services/ads";
 
-const isExpoGo = (global as any).expo?.modules?.ExponentConstants?.appOwnership === "expo";
+const isExpoGo = (globalThis as any).expo?.modules?.ExponentConstants?.appOwnership === "expo";
 
 export function useRewardedAd() {
   const [isReady, setIsReady] = useState(false);

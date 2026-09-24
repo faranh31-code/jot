@@ -16,3 +16,10 @@ export const showRewarded = async (
   _callbacks?: { onEarned?: () => void; onDismissed?: () => void }
 ): Promise<boolean> => false;
 export const isRewardedReady = (): boolean => false;
+export const isAdsModuleAvailable = (): boolean => false;
+export const ADS_DIAGNOSTICS_ENABLED = false;
+export const adDiag = () => {};
+export const subscribeAdDiagnostics = () => () => {};
+export const getAdDiagnostics = (): unknown[] => [];
+export const formatAdError = (error: any): string => String(error);
+export const getConfiguredTestDeviceIds = (): string[] => [];

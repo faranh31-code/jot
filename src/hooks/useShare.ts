@@ -20,7 +20,7 @@ export function useShare() {
       try {
         if (Platform.OS === "web") {
           if (navigator.share) {
-            await navigator.share({ title: title || "Shared from Jot", text: content });
+            await navigator.share({ title: title || "Shared from Nota", text: content });
             return true;
           }
           await navigator.clipboard.writeText(content);
@@ -30,7 +30,7 @@ export function useShare() {
         if (!isAvailable) {
           return await copyToClipboard(content);
         }
-        await Sharing.shareAsync(content, { dialogTitle: title || "Share from Jot" });
+        await Sharing.shareAsync(content, { dialogTitle: title || "Share from Nota" });
         return true;
       } catch {
         return false;
@@ -39,20 +39,8 @@ export function useShare() {
     [copyToClipboard]
   );
 
-  const clipboardCheck = useCallback(async (): Promise<string | null> => {
-    try {
-      const has = await Clipboard.hasStringAsync();
-      if (!has) return null;
-      const text = await Clipboard.getStringAsync();
-      return text && text.trim().length > 0 ? text : null;
-    } catch {
-      return null;
-    }
-  }, []);
-
   return {
     copyToClipboard,
     shareText,
-    clipboardCheck,
   };
 }

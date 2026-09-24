@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -20,9 +20,22 @@ import {
   FontSize,
   FontFamily,
 } from "../constants/theme";
-import { UserProfile, updateDisplayName } from "../services/firebase";
-import { getSubscriptionStatus } from "../services/subscription";
+import { UserProfile } from "../services/firebase";
+import { getSubscriptionStatus, onSubscriptionChange } from "../services/subscription";
+import { storageGet } from "../services/storage";
+import AdDiagnosticsOverlay from "../components/AdDiagnosticsOverlay";
+import PaywallModal from "../components/PaywallModal";
+import {
+  buildReferralUrl,
+  buildReferralMessage,
+  ensureReferralProfile,
+  getReferralSummary,
+  REFERRALS_REQUIRED,
+} from "../services/referral";
+import { trackEvent } from "../services/analytics";
 import StatsModal from "./StatsModal";
+import EditProfileModal from "./EditProfileModal";
+import AdBanner from "./AdBanner";
 
 interface SettingsModalProps {
   isVisible: boolean;
@@ -33,6 +46,7 @@ interface SettingsModalProps {
   user: UserProfile | null;
   onSignOut: () => void;
   onDeleteAccount: (password?: string) => Promise<{ success: boolean; error?: string }>;
+  onProfileUpdated?: () => void;
 }
 
 function SectionHeader({ label, isDark }: { label: string; isDark: boolean }) {
@@ -128,16 +142,54 @@ export default function SettingsModal({
   isVisible,
   isDark,
   onClose,
-  onOpenPaywall,
   onOpenAuth,
   user,
   onSignOut,
   onDeleteAccount,
+  onProfileUpdated,
 }: SettingsModalProps) {
   const theme = isDark ? Colors.dark : Colors.light;
-  const subStatus = getSubscriptionStatus();
+  const [subStatus, setSubStatus] = useState(getSubscriptionStatus());
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [statsVisible, setStatsVisible] = useState(false);
+  const [editProfileVisible, setEditProfileVisible] = useState(false);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallTrigger, setPaywallTrigger] = useState<string | undefined>(undefined);
+  const [adDiagVisible, setAdDiagVisible] = useState(false);
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+
+  const openPaywall = useCallback((trigger?: string) => {
+    setPaywallTrigger(trigger);
+    setPaywallVisible(true);
+  }, []);
+
+  useEffect(() => {
+    return onSubscriptionChange((status) => setSubStatus(status));
+  }, []);
+  const [referralCount, setReferralCount] = useState(0);
+  const [referralRewarded, setReferralRewarded] = useState(false);
+  const [grantActive, setGrantActive] = useState(false);
+  const [referredBy, setReferredBy] = useState<string | null>(null);
+
+  const refreshReferral = useCallback(async () => {
+    if (!user?.uid) {
+      setReferralCode(null);
+      return;
+    }
+    const summary = await getReferralSummary(user.uid);
+    await ensureReferralProfile(user.uid);
+    setReferralCode(summary.code);
+    setReferralCount(summary.referralCount);
+    setReferralRewarded(summary.referralRewarded);
+    setGrantActive(summary.grantActive);
+    setReferredBy(summary.referredBy);
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (isVisible) {
+      refreshReferral();
+    }
+  }, [isVisible, refreshReferral]);
 
   const getProviderLabel = (provider: string): string => {
     if (provider.includes("google")) return "Google";
@@ -151,15 +203,16 @@ export default function SettingsModal({
     if (!subStatus.isPro) return "Free";
     if (subStatus.plan === "pro_lifetime") return "Pro (Lifetime)";
     if (subStatus.plan === "pro_annual") return "Pro (Annual)";
+    if (subStatus.plan === "pro_referral") return "Pro (Referral)";
     return "Pro (Monthly)";
   };
 
   const handleShare = useCallback(async () => {
     try {
       const message =
-        "Check out Jot - the simplest way to save and organize your notes!\n\nhttps://apps.apple.com/app/jot";
+        "Check out Nota - the simplest way to save and organize your notes!\n\nhttps://faran.app/nota";
       if (Platform.OS === "ios") {
-        await Share.share({ url: "https://apps.apple.com/app/jot", message });
+        await Share.share({ url: "https://faran.app/nota", message });
       } else {
         await Share.share({ message });
       }
@@ -169,7 +222,7 @@ export default function SettingsModal({
   const handleRate = useCallback(() => {
     const url =
       Platform.OS === "ios"
-        ? "https://apps.apple.com/app/jot"
+        ? "https://faran.app/nota"
         : "market://details?id=com.faran.app3";
     Linking.openURL(url).catch(() => {});
   }, []);
@@ -181,6 +234,32 @@ export default function SettingsModal({
   const handleTerms = useCallback(() => {
     Linking.openURL("https://faran.app/terms").catch(() => {});
   }, []);
+
+  const handleReferral = useCallback(async () => {
+    try {
+      const REFERRAL_CODE_KEY = "jotapp_referral_code";
+      // Prefer the backend-issued code so the shared link resolves server-side.
+      const codeToShare =
+        referralCode ||
+        (user?.uid ? user.uid.slice(0, 8).toUpperCase() : null) ||
+        (await storageGet(REFERRAL_CODE_KEY)) ||
+        `NOTA${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+      if (user?.uid) {
+        await ensureReferralProfile(user.uid);
+        const summary = await getReferralSummary(user.uid);
+        if (summary.code) {
+          setReferralCode(summary.code);
+        }
+      }
+      trackEvent({ event: "referral_link_created" });
+      const message = buildReferralMessage(codeToShare);
+      if (Platform.OS === "ios") {
+        await Share.share({ url: buildReferralUrl(codeToShare), message });
+      } else {
+        await Share.share({ message });
+      }
+    } catch {}
+  }, [user, referralCode]);
 
   const handleDelete = useCallback(() => {
     Alert.alert(
@@ -229,7 +308,7 @@ export default function SettingsModal({
             { borderBottomColor: theme.border },
           ]}
         >
-          <Pressable onPress={onClose} style={styles.closeBtn}>
+          <Pressable onPress={onClose} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel="Close settings">
             <Ionicons name="close" size={22} color={theme.text} />
           </Pressable>
           <Text style={[styles.headerTitle, { color: theme.text }]}>
@@ -260,7 +339,7 @@ export default function SettingsModal({
                   label="Display Name"
                   value={user.displayName || "Not set"}
                   isDark={isDark}
-                  showChevron={false}
+                  onPress={() => setEditProfileVisible(true)}
                 />
                 <SettingsRow
                   icon="mail-outline"
@@ -276,6 +355,14 @@ export default function SettingsModal({
                   isDark={isDark}
                   showChevron={false}
                 />
+                {user.provider.includes("password") && (
+                  <SettingsRow
+                    icon="lock-closed-outline"
+                    label="Change Password"
+                    isDark={isDark}
+                    onPress={() => setEditProfileVisible(true)}
+                  />
+                )}
               </View>
             </>
           ) : (
@@ -297,7 +384,7 @@ export default function SettingsModal({
                       { color: theme.text },
                     ]}
                   >
-                    Sign in to sync your jots across devices
+                    Sign in to sync your notas across devices
                   </Text>
                   <Ionicons
                     name="chevron-forward"
@@ -349,10 +436,37 @@ export default function SettingsModal({
               <SettingsRow
                 icon="star-outline"
                 label="Upgrade to Pro"
-                onPress={() => onOpenPaywall("pro_feature")}
+                onPress={() => openPaywall("pro_feature")}
                 isDark={isDark}
               />
             )}
+            <SettingsRow
+              icon="pulse-outline"
+              label="Ad Diagnostics"
+              value="BETA"
+              isDark={isDark}
+              onPress={() => setAdDiagVisible(true)}
+            />
+            <SettingsRow
+              icon="eye-outline"
+              label="Ad Inspector"
+              value={Platform.OS === "ios" ? "iOS SDK only" : undefined}
+              isDark={isDark}
+              onPress={() => {
+                if (Platform.OS === "ios") {
+                  Alert.alert(
+                    "Ad Inspector",
+                    "On iOS this is opened from the SDK itself (GADMobileAds.presentAdInspectorFromViewController). Launch the app in Xcode and call it there, or use the diagnostics log instead."
+                  );
+                  return;
+                }
+                Linking.openURL("adInspector://com.faran.app3").catch((e) => {
+                  const detail =
+                    typeof e === "string" ? e : e instanceof Error ? e.message : JSON.stringify(e);
+                  Alert.alert("Ad Inspector", `Could not open Ad Inspector (requires Google Play services with GMA SDK 24.4+).\n${detail}`);
+                });
+              }}
+            />
           </View>
 
           <SectionHeader label="INSIGHTS" isDark={isDark} />
@@ -392,13 +506,13 @@ export default function SettingsModal({
             />
             <SettingsRow
               icon="star-outline"
-              label="Give Jot a Review"
+              label="Give Nota a Review"
               onPress={handleRate}
               isDark={isDark}
             />
             <SettingsRow
               icon="share-social-outline"
-              label="Share Jot"
+              label="Share Nota"
               onPress={handleShare}
               isDark={isDark}
             />
@@ -416,7 +530,7 @@ export default function SettingsModal({
             />
           </View>
 
-          <SectionHeader label="REFERRAL" isDark={isDark} />
+          <SectionHeader label="REFER & GET PRO" isDark={isDark} />
           <View
             style={[
               styles.card,
@@ -428,17 +542,12 @@ export default function SettingsModal({
           >
             <Pressable
               style={styles.referralBanner}
-              onPress={() => {
-                Share.share({
-                  message:
-                    "Join me on Jot! Save anything, find everything.\n\nhttps://jot.app/ref",
-                });
-              }}
+              onPress={user?.email ? handleReferral : onOpenAuth}
             >
               <Text
                 style={[styles.referralTitle, { color: theme.accentText }]}
               >
-                Give Jot, Get Pro
+                Give Nota, Get Pro
               </Text>
               <Text
                 style={[
@@ -446,10 +555,114 @@ export default function SettingsModal({
                   { color: theme.textSecondary },
                 ]}
               >
-                Share your referral link. When a friend signs up, you both
-                get rewards.
+                {user?.email
+                  ? `Refer ${REFERRALS_REQUIRED} friends, get 1 month of Pro free. Friends get a free Pro trial too.`
+                  : "Sign in with email to share your referral link and earn free Pro."}
               </Text>
             </Pressable>
+
+            {user?.email && (
+              <>
+                <View
+                  style={[
+                    styles.divider,
+                    { backgroundColor: theme.border },
+                  ]}
+                />
+
+                <View style={styles.referralDetail}>
+                  <View style={styles.progressRow}>
+                    <Text style={[styles.progressText, { color: theme.text }]}>
+                      {referralRewarded
+                        ? "Reward unlocked!"
+                        : `${referralCount} of ${REFERRALS_REQUIRED} friends`}
+                    </Text>
+                    {referralRewarded && (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={18}
+                        color={theme.accentText}
+                      />
+                    )}
+                  </View>
+                  <View
+                    style={[
+                      styles.progressTrack,
+                      { backgroundColor: theme.input, borderColor: theme.border },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.progressFill,
+                        {
+                          backgroundColor: theme.accentText,
+                          width: `${Math.min(100, (referralCount / REFERRALS_REQUIRED) * 100)}%`,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text style={[styles.referralStepText, { color: theme.textSecondary }]}>
+                    {referralRewarded
+                      ? "1 month of Nota Pro has been added to your account."
+                      : grantActive
+                      ? "Your Pro trial is active. Keep sharing to unlock the 1-month reward!"
+                      : "Each friend unlocks a 7-day Pro trial when they sign up with your link."}
+                  </Text>
+                </View>
+              </>
+            )}
+
+            <View
+              style={[
+                styles.divider,
+                { backgroundColor: theme.border },
+              ]}
+            />
+
+            <View style={styles.referralDetail}>
+              <Text style={[styles.referralStep, { color: theme.accentText }]}>
+                1. Share your link
+              </Text>
+              <Text style={[styles.referralStepText, { color: theme.textSecondary }]}>
+                Tap the banner above to share your personal link on any app.
+              </Text>
+
+              <Text style={[styles.referralStep, { color: theme.accentText }]}>
+                2. Friends sign up with email
+              </Text>
+              <Text style={[styles.referralStepText, { color: theme.textSecondary }]}>
+                Each friend who installs Nota and creates an email account with your link counts as a referral.
+              </Text>
+
+              <Text style={[styles.referralStep, { color: theme.accentText }]}>
+                3. Rewards are automatic
+              </Text>
+              <Text style={[styles.referralStepText, { color: theme.textSecondary }]}>
+                Your friends get 7 days of Pro free on signup. Once {REFERRALS_REQUIRED} friends have signed up, 1 month of Pro is added to your account.
+              </Text>
+            </View>
+
+            <View
+              style={[
+                styles.divider,
+                { backgroundColor: theme.border },
+              ]}
+            />
+
+            <View style={styles.referralDetail}>
+              <Text style={[styles.referralConditionsTitle, { color: theme.text }]}>
+                Good to know
+              </Text>
+              <Text style={[styles.referralStepText, { color: theme.textSecondary }]}>
+                {"\u2022"} Referral credits apply to new email signups only — anonymous, Google, and Apple accounts don't count.
+              </Text>
+              <Text style={[styles.referralStepText, { color: theme.textSecondary }]}>
+                {"\u2022"} One reward per account — sending your link to yourself or bots doesn't count.
+              </Text>
+              <Text style={[styles.referralStepText, { color: theme.textSecondary }]}>
+                {"\u2022"} Rewards are applied automatically when the signup is verified. No manual review needed.
+              </Text>
+            </View>
           </View>
 
           <SectionHeader label="ACCOUNT MANAGEMENT" isDark={isDark} />
@@ -495,12 +708,32 @@ export default function SettingsModal({
 
           <View style={{ height: 40 }} />
         </ScrollView>
+        {!subStatus.isPro && <AdBanner isDark={isDark} position="bottom" />}
       </View>
 
       <StatsModal
         isVisible={statsVisible}
         isDark={isDark}
         onClose={() => setStatsVisible(false)}
+        isPro={subStatus.isPro}
+      />
+      <EditProfileModal
+        isVisible={editProfileVisible}
+        isDark={isDark}
+        user={user}
+        onClose={() => setEditProfileVisible(false)}
+        onProfileUpdated={onProfileUpdated}
+      />
+      <PaywallModal
+        isVisible={paywallVisible}
+        isDark={isDark}
+        trigger={paywallTrigger}
+        onClose={() => setPaywallVisible(false)}
+      />
+      <AdDiagnosticsOverlay
+        isDark={isDark}
+        visible={adDiagVisible}
+        onClose={() => setAdDiagVisible(false)}
       />
     </Modal>
   );
@@ -519,8 +752,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   closeBtn: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -604,5 +837,49 @@ const styles = StyleSheet.create({
   referralSubtitle: {
     fontSize: FontSize.sm,
     lineHeight: 20,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+  },
+  referralDetail: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    gap: Spacing.xs,
+  },
+  referralStep: {
+    fontSize: FontSize.md,
+    fontWeight: "700",
+    marginTop: Spacing.xs,
+  },
+  referralStepText: {
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+  },
+  referralConditionsTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: "600",
+    marginBottom: Spacing.xs,
+  },
+  progressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: Spacing.xs,
+  },
+  progressText: {
+    fontSize: FontSize.sm,
+    fontWeight: "600",
+  },
+  progressTrack: {
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 1,
+    overflow: "hidden",
+    marginBottom: Spacing.xs,
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 4,
+    minWidth: 8,
   },
 });
